@@ -14,7 +14,7 @@ open macos/build/EmotionCat.app
 
 기본 빌드는 arm64와 x86_64 Universal 앱입니다. 한 아키텍처만 필요하면 `ARCHS=arm64 bash macos/build.sh` 또는 `ARCHS=x86_64 bash macos/build.sh`를 사용합니다. 빌드 스크립트는 Swift 컴파일, 앱 서명, 32개 투명 스프라이트 파일의 크기와 매핑 검사까지 수행합니다. 결과 앱을 `/Applications`에 복사한 **후** 입력 권한을 부여하면 앱 위치가 바뀌어 권한이 무효화되는 일을 줄일 수 있습니다.
 
-`ci-macos.yml`은 GitHub Actions용 워크플로입니다. 저장소의 `.github/workflows/macos.yml`에 두면 macOS 러너에서 양쪽 아키텍처를 컴파일하고 앱 ZIP을 제공합니다. CI는 GUI 입력, Dock 정렬, IME 동작을 검증하지 않습니다.
+`.github/workflows/macos.yml`은 macOS 러너에서 양쪽 아키텍처를 컴파일하고 앱 ZIP을 만듭니다. `ci-macos.yml`은 같은 워크플로의 복사본입니다. `main` 빌드의 ZIP과 SHA-256 파일은 [Releases](https://github.com/kmu9842/EmotionCat/releases)의 `macos-<커밋>` 초안에 저장되고, Actions 실행 요약에 다운로드 링크가 표시됩니다. PR은 빌드·패키징만 검사합니다. Actions artifact 저장공간을 사용하지 않으며, 재실행은 같은 커밋의 초안 파일을 갱신합니다. 게시된 릴리스 파일은 덮어쓰지 않습니다. CI는 GUI 입력, Dock 정렬, IME 동작을 검증하지 않습니다.
 
 ## 처음 설정
 

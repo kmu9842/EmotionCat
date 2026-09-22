@@ -35,4 +35,4 @@ Windows 전역 키보드 훅에서 문자를 받아 최대 240자를 메모리�
 
 Live 검사는 실행 중인 EmotionCat을 종료한 후 실행합니다. 편집 컨트롤이 없는 별도 시험 창에만 OS 키 이벤트를 보내고, 그 프로세스만 감지합니다. 한/영 자동 감지 → 한글 조합 → 0.5초 대기 → GPU Laya → 실제 투명 창의 하트·화남 프레임까지 검증합니다. 무입력과 보조키 입력 중 추론 횟수가 증가하지 않는지도 확인합니다. 사용자의 실제 입력은 테스트로 수집하지 않습니다.
 
-macOS 소스와 Universal 빌드 스크립트는 [macos/README.md](macos/README.md)에 있습니다. GitHub Actions에서 Universal 빌드·서명·스프라이트 검사를 실행하며 결과와 앱 ZIP은 저장소의 Actions에서 확인할 수 있습니다. **실기기의 GUI 입력·IME·Dock 동작과 MPS 성능은 아직 검증하지 않았습니다.** Linux는 추론 설치 스크립트만 있으며 데스크톱 앱은 아직 없습니다.
+macOS 소스와 Universal 빌드 스크립트는 [macos/README.md](macos/README.md)에 있습니다. GitHub Actions에서 Universal 빌드·서명·스프라이트 검사를 실행합니다. `main` 빌드의 앱 ZIP과 SHA-256은 [Releases](https://github.com/kmu9842/EmotionCat/releases)의 커밋별 초안에 저장되며, Actions 실행 요약에도 다운로드 링크가 표시됩니다. Actions artifact 저장공간을 사용하지 않습니다. **실기기의 GUI 입력·IME·Dock 동작과 MPS 성능은 아직 검증하지 않았습니다.** Linux는 추론 설치 스크립트만 있으며 데스크톱 앱은 아직 없습니다.

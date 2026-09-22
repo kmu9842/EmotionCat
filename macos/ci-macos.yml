@@ -2,20 +2,33 @@ name: Native macOS build
 on:
   workflow_dispatch:
   push:
-    paths: ["macos/**", "assets/frames/**", "inference/**", "scripts/setup-laya.sh", ".github/workflows/macos.yml"]
+    branches: [main]
+    paths: ["macos/**", "assets/frames/**", "inference/**", "scripts/setup-laya.sh", "scripts/upload-macos-build.sh", ".github/workflows/macos.yml"]
   pull_request:
-    paths: ["macos/**", "assets/frames/**", "inference/**", "scripts/setup-laya.sh", ".github/workflows/macos.yml"]
+    paths: ["macos/**", "assets/frames/**", "inference/**", "scripts/setup-laya.sh", "scripts/upload-macos-build.sh", ".github/workflows/macos.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   appkit:
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node 24
+        with:
+          persist-credentials: false
       - name: Compile both architectures and verify all 32 sprite mappings
         run: bash macos/build.sh
       - name: Pack application bundle with signature and executable modes
         run: ditto -c -k --sequesterRsrc --keepParent macos/build/EmotionCat.app macos/build/EmotionCat-macOS.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: EmotionCat-macOS
-          path: macos/build/EmotionCat-macOS.zip
-          if-no-files-found: error
+      - name: Save macOS ZIP to a draft release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_SHA: ${{ github.sha }}
+          BUILD_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/upload-macos-build.sh
