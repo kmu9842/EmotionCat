@@ -1,0 +1,21 @@
+name: Native macOS build
+on:
+  workflow_dispatch:
+  push:
+    paths: ["macos/**", "assets/frames/**", "inference/**", "scripts/setup-laya.sh", ".github/workflows/macos.yml"]
+  pull_request:
+    paths: ["macos/**", "assets/frames/**", "inference/**", "scripts/setup-laya.sh", ".github/workflows/macos.yml"]
+jobs:
+  appkit:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile both architectures and verify all 32 sprite mappings
+        run: bash macos/build.sh
+      - name: Pack application bundle with signature and executable modes
+        run: ditto -c -k --sequesterRsrc --keepParent macos/build/EmotionCat.app macos/build/EmotionCat-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EmotionCat-macOS
+          path: macos/build/EmotionCat-macOS.zip
+          if-no-files-found: error

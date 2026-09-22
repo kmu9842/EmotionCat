@@ -1,0 +1,856 @@
+﻿{
+    "schemaVersion":  1,
+    "canvas":  [
+                   512,
+                   384
+               ],
+    "deskBaseline":  310,
+    "pivot":  [
+                  256,
+                  310
+              ],
+    "viewerSideConvention":  true,
+    "frameCount":  32,
+    "layerCount":  12,
+    "tool":  "built-in image_gen.imagegen",
+    "promptFile":  "assets/generation-prompts.json",
+    "preview":  "assets/contact-sheet.png",
+    "assets":  [
+                   {
+                       "path":  "assets/frames/angry_both.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  106259,
+                       "opaquePixels":  50152,
+                       "partialAlphaPixels":  40197,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  133544,
+                       "sha256":  "02481d2ae49ba571e333e268fe34787841e63923ae4ae4825ccd3d58f4a946bb",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/angry_idle.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105244,
+                       "opaquePixels":  47369,
+                       "partialAlphaPixels":  43995,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  128731,
+                       "sha256":  "d9fc46689940c24eb2b52112f84fce7c171434245a2f429c93ba1aa7e8f6701d",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/angry_left.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105694,
+                       "opaquePixels":  49655,
+                       "partialAlphaPixels":  41259,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  132501,
+                       "sha256":  "d03a2430692fd190e265d247661616cfa48cc6ae3d5999a484c01f96cf03acd3",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/angry_right.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105809,
+                       "opaquePixels":  47866,
+                       "partialAlphaPixels":  42933,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  132473,
+                       "sha256":  "bf98c1461427cfb199fb28c192e26a1992e2e4ea2e860b05fde68dd175ec3ed8",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/confused_both.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  106259,
+                       "opaquePixels":  50152,
+                       "partialAlphaPixels":  40197,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  127910,
+                       "sha256":  "c131d14c8d13fe59614ff6f50bc9caf708e08e85a083d8b7c922e794714ad5d4",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/confused_idle.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105244,
+                       "opaquePixels":  47369,
+                       "partialAlphaPixels":  43995,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  121185,
+                       "sha256":  "afa069c1722282a7df04ce3a845e22cbe957706db63ee7b1258559b29ef77117",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/confused_left.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105694,
+                       "opaquePixels":  49655,
+                       "partialAlphaPixels":  41259,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  125700,
+                       "sha256":  "5345f11afded4f34ab34ba644b3d4c4af7d9672d74c2150feec06791b1ab4b29",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/confused_right.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105809,
+                       "opaquePixels":  47866,
+                       "partialAlphaPixels":  42933,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  126132,
+                       "sha256":  "530b8a5be956167883bc5fcdb7d35fb96888919853cf1dc5ece494a5597f2bee",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/excited_both.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  106259,
+                       "opaquePixels":  50152,
+                       "partialAlphaPixels":  40197,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  137234,
+                       "sha256":  "7c60aea880a6c93359dd0dd31997650068ebe84d02220d5ad72cd6801a6e0e53",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/excited_idle.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105244,
+                       "opaquePixels":  47369,
+                       "partialAlphaPixels":  43995,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  135368,
+                       "sha256":  "19069e1832b9cea25bfa35e449b012d729923e129a5f35b7dbc9f7ac2a56113d",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/excited_left.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105694,
+                       "opaquePixels":  49655,
+                       "partialAlphaPixels":  41259,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  137662,
+                       "sha256":  "9d4b71f6ef45a7732149520bd99ce0547ecbe2dc84ca6075c3a6483426ebc2b6",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/excited_right.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105809,
+                       "opaquePixels":  47866,
+                       "partialAlphaPixels":  42933,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  137649,
+                       "sha256":  "07da5d661f3f6727f9916e044ca6d632e76111173e820b96f4b22c37f908183f",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/love_both.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  106259,
+                       "opaquePixels":  50152,
+                       "partialAlphaPixels":  40197,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  135255,
+                       "sha256":  "d24ea7a9be28069bd7f85d3cff54f1a1edd9b655e2d8c2c8d8c84b24850a2ad2",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/love_idle.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105244,
+                       "opaquePixels":  47369,
+                       "partialAlphaPixels":  43995,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  130869,
+                       "sha256":  "71bc39258d30f56ad4b710792d593f15422251a5f7004786a6a02d6184f899e9",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/love_left.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105694,
+                       "opaquePixels":  49655,
+                       "partialAlphaPixels":  41259,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  134382,
+                       "sha256":  "bc7aaf311035e50d7d472f67dee6013fbe0160ff99530c4a3e285e2ab6c9a64e",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/love_right.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105809,
+                       "opaquePixels":  47866,
+                       "partialAlphaPixels":  42933,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  134427,
+                       "sha256":  "a52c0fee1bf32ad27fab9ca1b25a52eb87b9abf222c5836b4230cdcf2eea5706",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/neutral_both.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  106259,
+                       "opaquePixels":  50152,
+                       "partialAlphaPixels":  40197,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  130159,
+                       "sha256":  "4e98df5fc6f2be98dcde68da6d42fc576934808df2aa0f7777ba5f5ad02738fe",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/neutral_idle.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105244,
+                       "opaquePixels":  47369,
+                       "partialAlphaPixels":  43995,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  125117,
+                       "sha256":  "81bb572fcebaac6e9c5a6928637760e44c8d4b9b65f6ee2c4aa334f525ccd562",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/neutral_left.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105694,
+                       "opaquePixels":  49655,
+                       "partialAlphaPixels":  41259,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  128888,
+                       "sha256":  "a9f976ebdca343f9e9758ba38a785846bf954f5057bd53fb8a5b17669ad10857",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/neutral_right.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105809,
+                       "opaquePixels":  47866,
+                       "partialAlphaPixels":  42933,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  129046,
+                       "sha256":  "9455125266128a8a80a9eddaec11d151c9012894715a8bdfde375dfd2b3bd63a",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/sad_both.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  106259,
+                       "opaquePixels":  50152,
+                       "partialAlphaPixels":  40197,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  134858,
+                       "sha256":  "d1991a59737576447eb97defc232215b0aad9a3170e1b9589dcf1486a08ecc49",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/sad_idle.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105244,
+                       "opaquePixels":  47369,
+                       "partialAlphaPixels":  43995,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  130812,
+                       "sha256":  "26128b9c4983de49199a87dda197347227f413bd02d1635dfeaa44acefa0472d",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/sad_left.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105694,
+                       "opaquePixels":  49655,
+                       "partialAlphaPixels":  41259,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  134443,
+                       "sha256":  "ee8ad875ca90ea1d64ef1fcaa3c2c90aa2b6f37498c5efe65891deda6cf5888c",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/sad_right.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105809,
+                       "opaquePixels":  47866,
+                       "partialAlphaPixels":  42933,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  133805,
+                       "sha256":  "b0b51d6b61013a3beb7245f32cbac38ba74c96f8f22583457fce65c1a5b6dfe9",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/sleepy_both.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  106259,
+                       "opaquePixels":  50152,
+                       "partialAlphaPixels":  40197,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  131726,
+                       "sha256":  "650328673eeee4a0fb4ea6114f92fadaa7330086abc136757feb5fe575924a0c",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/sleepy_idle.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105244,
+                       "opaquePixels":  47369,
+                       "partialAlphaPixels":  43995,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  126926,
+                       "sha256":  "e9007a6e22ce88783f5919efe1568867f8afd7f8e6cd91fddbb4598db1085aee",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/sleepy_left.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105694,
+                       "opaquePixels":  49655,
+                       "partialAlphaPixels":  41259,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  130551,
+                       "sha256":  "a20676391c1e591ccc87ea322c11d402fd59d7f9ecfdcacf351aee24fc1594d2",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/sleepy_right.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105809,
+                       "opaquePixels":  47866,
+                       "partialAlphaPixels":  42933,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  130874,
+                       "sha256":  "9262248e4bd2226df708d98b55c469f697ea8b1456521d8c4bfe63116161c95f",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/surprised_both.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  106259,
+                       "opaquePixels":  50152,
+                       "partialAlphaPixels":  40197,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  133880,
+                       "sha256":  "549998a29833dc0e06395d815209d9ab440b22ce2d384d198b3c495ae2331e13",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/surprised_idle.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105244,
+                       "opaquePixels":  47369,
+                       "partialAlphaPixels":  43995,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  128982,
+                       "sha256":  "121cea45c70b402ac7ee301fe9bae8ecf520a7bd044958abfe145060e4a497df",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/surprised_left.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105694,
+                       "opaquePixels":  49655,
+                       "partialAlphaPixels":  41259,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  132730,
+                       "sha256":  "3ad637bb774f213fa97c9274dfd3cb4b51908561b6af13504acbda56e8e7a8bb",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/frames/surprised_right.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  105809,
+                       "opaquePixels":  47866,
+                       "partialAlphaPixels":  42933,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  132748,
+                       "sha256":  "150abccdbada454757994fab181ed95d34ac0dcb461e4f9bde32bc9fe0591fc5",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/body_angry.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  108441,
+                       "opaquePixels":  38773,
+                       "partialAlphaPixels":  49394,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  119704,
+                       "sha256":  "a6818c5baaa61273537ef24a974027bbd9d00fe184aab34ae1d5a9df4f59bbf1",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/body_confused.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  108441,
+                       "opaquePixels":  38773,
+                       "partialAlphaPixels":  49394,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  112291,
+                       "sha256":  "d46ba524d2c7f6ae399d521b62248d1f91f587626eb696fd4c675628c817c2e4",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/body_excited.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  108441,
+                       "opaquePixels":  38773,
+                       "partialAlphaPixels":  49394,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  126572,
+                       "sha256":  "a23a78dd3e4b1dbb74e52a3cb7d428ed620dcee4eb5f638c77fa17498e76f9b4",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/body_love.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  108441,
+                       "opaquePixels":  38773,
+                       "partialAlphaPixels":  49394,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  121980,
+                       "sha256":  "ac008077c6dc113f64d86c6ab1052474485144c31e0a4287d105456bef957600",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/body_neutral.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  108441,
+                       "opaquePixels":  38773,
+                       "partialAlphaPixels":  49394,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  116222,
+                       "sha256":  "489a6a15f945cba51f890a91e06b680de2f5a11e76fa64d07acdf03cf9320598",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/body_sad.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  108441,
+                       "opaquePixels":  38773,
+                       "partialAlphaPixels":  49394,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  121882,
+                       "sha256":  "22fc20e89ecdd3c94ca81d8d7779e491c3c9c86a69c51d9aa1d0045936c5d04a",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/body_sleepy.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  108441,
+                       "opaquePixels":  38773,
+                       "partialAlphaPixels":  49394,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  117931,
+                       "sha256":  "3055170c83ac84bdc9b2a3c9fd679607f4818d9edb723e9b36690391cf34b010",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/body_surprised.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  108441,
+                       "opaquePixels":  38773,
+                       "partialAlphaPixels":  49394,
+                       "bounds":  [
+                                      37,
+                                      63,
+                                      506,
+                                      360
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  120014,
+                       "sha256":  "9419ce29356b202012029e33d5a44aab557d945672e3240e9d91ac93d239afd9",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/paw_left_down.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  190769,
+                       "opaquePixels":  153,
+                       "partialAlphaPixels":  5686,
+                       "bounds":  [
+                                      43,
+                                      264,
+                                      152,
+                                      331
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  11426,
+                       "sha256":  "648d4729e7a1afbd1c78292f26af9ec4e5a85ea072718be2a7c3cff7d3706c6d",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/paw_left_up.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  184653,
+                       "opaquePixels":  444,
+                       "partialAlphaPixels":  11511,
+                       "bounds":  [
+                                      41,
+                                      183,
+                                      153,
+                                      325
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  22716,
+                       "sha256":  "4bedafa2dcfef1a8e93eb65ee530a4067dcc385028f1a1d7ccc12291f64b4387",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/paw_right_down.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  190475,
+                       "opaquePixels":  123,
+                       "partialAlphaPixels":  6010,
+                       "bounds":  [
+                                      315,
+                                      263,
+                                      426,
+                                      330
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  11893,
+                       "sha256":  "649b7daa679faa7718a5a91477b618e0fe2e1016748e7b82a165f9db5ad4b8ba",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   },
+                   {
+                       "path":  "assets/sprites/paw_right_up.png",
+                       "width":  512,
+                       "height":  384,
+                       "transparentPixels":  184657,
+                       "opaquePixels":  455,
+                       "partialAlphaPixels":  11496,
+                       "bounds":  [
+                                      313,
+                                      183,
+                                      425,
+                                      325
+                                  ],
+                       "opaqueOuterEdgePixels":  0,
+                       "bytes":  22658,
+                       "sha256":  "5fef9c210d5d715e9763d2be704b8ae8cf1ad06c9d17323209fd478d551f193a",
+                       "source":  "Built-in image_gen; deterministic crop, resize, layer assembly",
+                       "status":  "alpha-and-contact-sheet-verified"
+                   }
+               ]
+}

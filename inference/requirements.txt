@@ -1,0 +1,5 @@
+# Tested together on Windows x64 / Python 3.13. CPU torch is installed separately.
+laya==0.3.5
+transformers==4.57.6
+huggingface-hub==0.36.2
+safetensors==0.6.2
