@@ -33,7 +33,7 @@ internal static class CoreTests
         Check(defaults.Emotions.Exists(e => e.Id == "angry") && defaults.Emotions.Exists(e => e.Id == "love")
             && defaults.Emotions.Exists(e => e.Id == "sad") && defaults.Emotions.Exists(e => e.Id == "excited"), "Required expressions are missing.");
         var partial = serializer.Deserialize<AppSettings>("{\"Size\":480}");
-        Check(partial.Size == 480 && partial.HoldSeconds == 4 && partial.Emotions.Count == 8 && partial.InputEnabled,
+        Check(partial.Size == 480 && partial.HoldSeconds == 1 && partial.Emotions.Count == 8 && partial.InputEnabled,
             "A partial settings file must preserve defaults for missing values.");
         var missingNeutral = new AppSettings { Emotions = new List<EmotionDefinition> { new EmotionDefinition("custom", "Custom", "Custom feeling") } };
         missingNeutral.Normalize();

@@ -122,7 +122,7 @@ namespace EmotionCat
             LabelAt(behavior, "ms", 355, 74, 44, 25, 9, false);
             debounce.ValueChanged += delegate { settings.DebounceMilliseconds = (int)debounce.Value; app.ApplySettings(); };
             LabelAt(behavior, "표정 유지 시간", 20, 119, 220, 28, 10, false);
-            var hold = new NumericUpDown { Minimum = 2, Maximum = 60, Value = Math.Max(2, Math.Min(60, settings.HoldSeconds)), Location = new Point(247, 119), Width = 100 }; behavior.Controls.Add(hold);
+            var hold = new NumericUpDown { Minimum = 1, Maximum = 60, Value = Math.Max(1, Math.Min(60, settings.HoldSeconds)), Location = new Point(247, 119), Width = 100 }; behavior.Controls.Add(hold);
             LabelAt(behavior, "초", 355, 120, 44, 25, 9, false);
             hold.ValueChanged += delegate { settings.HoldSeconds = (int)hold.Value; app.ApplySettings(); };
             LabelAt(behavior, "입력을 읽지 않을 앱 (프로세스 이름)", 20, 180, 380, 25, 9, true);
