@@ -179,7 +179,7 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         cat.cat.emotion = id
         let reset = DispatchWorkItem { [weak self] in self?.cat.cat.emotion = "neutral" }
         emotionReset = reset
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: reset)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: reset)
     }
     private func demoPaws() {
         previewSequence += 1

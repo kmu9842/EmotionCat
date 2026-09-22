@@ -86,13 +86,13 @@ namespace EmotionCat
             SnapToTaskbar = true;
             Model = "multilingual";
             PythonPath = "";
-            SettingsVersion = 5;
+            SettingsVersion = 6;
             Device = "auto";
             InputMode = "auto";
             ClassificationPrompt = DefaultPrompt;
             MinConfidence = 0.25;
             DebounceMilliseconds = 500;
-            HoldSeconds = 4;
+            HoldSeconds = 1;
             ExcludedProcesses = new[] { "1Password", "Bitwarden", "KeePass", "KeePassXC", "LastPass", "Dashlane", "NordPass" };
             Emotions = DefaultEmotions();
         }
@@ -156,6 +156,11 @@ namespace EmotionCat
                     if (settings.DebounceMilliseconds == 1000) settings.DebounceMilliseconds = 500;
                     settings.SettingsVersion = 5;
                 }
+                if (!fields.ContainsKey("SettingsVersion") || settings.SettingsVersion < 6)
+                {
+                    if (settings.HoldSeconds == 4) settings.HoldSeconds = 1;
+                    settings.SettingsVersion = 6;
+                }
                 settings.Normalize();
                 return settings;
             }
@@ -200,7 +205,7 @@ namespace EmotionCat
             if (InputMode != "korean" && InputMode != "latin") InputMode = "auto";
             Size = Math.Max(180, Math.Min(800, Size));
             DebounceMilliseconds = Math.Max(150, Math.Min(5000, DebounceMilliseconds));
-            HoldSeconds = Math.Max(2, Math.Min(120, HoldSeconds));
+            HoldSeconds = Math.Max(1, Math.Min(120, HoldSeconds));
             Model = "multilingual";
             if (PythonPath == null) PythonPath = "";
             if (Device != "cuda" && Device != "cpu" && Device != "mps") Device = "auto";
