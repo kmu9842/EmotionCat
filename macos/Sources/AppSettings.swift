@@ -111,7 +111,8 @@ final class SettingsStore {
     func importImage(_ source: URL) throws -> String {
         let values = try source.resourceValues(forKeys: [.fileSizeKey])
         guard (values.fileSize ?? Int.max) <= 16 * 1_024 * 1_024,
-              let bitmap = NSBitmapImageRep(contentsOf: source),
+              let data = try? Data(contentsOf: source),
+              let bitmap = NSBitmapImageRep(data: data),
               bitmap.pixelsWide > 0, bitmap.pixelsHigh > 0,
               bitmap.pixelsWide <= 4096, bitmap.pixelsHigh <= 4096,
               let png = bitmap.representation(using: .png, properties: [:]) else {

@@ -20,7 +20,7 @@ namespace EmotionCat
         Thread hookThread, readerThread;
         HookProc keyboardCallback, mouseCallback;
         volatile bool running, disposed, enabled = true;
-        volatile int debounceMilliseconds = 1000;
+        volatile int debounceMilliseconds = 500;
         volatile string inputMode = "auto";
         volatile string[] excludedProcesses = new string[0];
         int generation, queuedCount, queuedAnimation, latestAnimationKey, wakeDisposed;
@@ -95,7 +95,7 @@ namespace EmotionCat
                 keyboard = SetWindowsHookEx(13, keyboardCallback, GetModuleHandle(null), 0);
                 mouse = SetWindowsHookEx(14, mouseCallback, GetModuleHandle(null), 0);
                 if (keyboard == IntPtr.Zero || mouse == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
-                SetStatus("전역 문자 입력 대기 · 문자 입력 후 1초 뒤 분석");
+                SetStatus("전역 문자 입력 대기");
                 while (running && GetMessage(out message, IntPtr.Zero, 0, 0) > 0) { TranslateMessage(ref message); DispatchMessage(ref message); }
             }
             catch (Exception) { SetStatus("전역 키보드 감지를 시작하지 못했어요."); }
