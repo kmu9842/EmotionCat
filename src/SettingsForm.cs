@@ -101,7 +101,7 @@ namespace EmotionCat
             testButton = ButtonAt(tester, "분류", 20, 200, 380, 36, async delegate { await TestSentence(); }, true);
             testResult = LabelAt(tester, "분류 대기", 20, 250, 380, 63, 10, false);
             pipeline = LabelAt(tester, "입력 감지 대기", 20, 325, 380, 64, 8.5f, false); pipeline.ForeColor = Muted;
-            LabelAt(tester, "전역 문자 입력 → 1초간 기록 → Laya → 표정", 20, 394, 386, 21, 8, false).ForeColor = Muted;
+            LabelAt(tester, "전역 문자 입력 → Laya → 표정", 20, 394, 386, 21, 8, false).ForeColor = Muted;
 
             Panel appearance = Card(sections[2], 0, 0, 410, 426);
             LabelAt(appearance, "표시", 20, 17, 370, 28, 13, true);

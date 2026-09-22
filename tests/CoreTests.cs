@@ -27,7 +27,7 @@ internal static class CoreTests
         var serializer = new JavaScriptSerializer();
         var defaults = new AppSettings();
         Check(defaults.Emotions.Count == 8, "Eight default expressions must be available.");
-        Check(defaults.DebounceMilliseconds == 1000, "Inspect updated input every one second by default.");
+        Check(defaults.DebounceMilliseconds == 500, "Analyze recorded input half a second after characters arrive.");
         Check(defaults.Emotions.Find(e => e.Id == "angry").Description == "분노"
             && defaults.Emotions.Find(e => e.Id == "love").Description == "사랑", "Classification meanings must map to the intended sprites.");
         Check(defaults.Emotions.Exists(e => e.Id == "angry") && defaults.Emotions.Exists(e => e.Id == "love")

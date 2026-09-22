@@ -130,7 +130,7 @@ final class KeyboardMonitor {
         if pendingRead == nil {
             let work = DispatchWorkItem { [weak self] in self?.emitRecentText() }
             pendingRead = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
         }
     }
     private func emitRecentText() {
@@ -179,7 +179,7 @@ final class KeyboardMonitor {
     private func reportStatus() {
         if !isStarted || !enabled { publishStatus("입력 일시정지") }
         else if eventTap == nil { publishStatus("입력 모니터링 권한 필요") }
-        else { publishStatus(captureText ? "전역 문자 입력 대기 · 입력 후 1초 뒤 분석" : "감정 인식 꺼짐") }
+        else { publishStatus(captureText ? "전역 문자 입력 대기 · 입력 후 0.5초 뒤 분석" : "감정 인식 꺼짐") }
     }
     private func publishStatus(_ value: String) { if value != lastStatus { lastStatus = value; onStatus(value) } }
 }

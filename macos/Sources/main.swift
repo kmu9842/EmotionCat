@@ -218,7 +218,8 @@ if arguments.contains("--verify-assets") {
     for definition in EmotionDefinition.defaults {
         for pose in ["idle", "left", "right", "both"] {
             let path = definition.path(for: pose)
-            guard let bitmap = NSBitmapImageRep(contentsOf: resourceRoot.appendingPathComponent(path)),
+            guard let data = try? Data(contentsOf: resourceRoot.appendingPathComponent(path)),
+                  let bitmap = NSBitmapImageRep(data: data),
                   bitmap.pixelsWide == 512, bitmap.pixelsHigh == 384, bitmap.hasAlpha else {
                 failures.append(path); continue
             }

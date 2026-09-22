@@ -86,12 +86,12 @@ namespace EmotionCat
             SnapToTaskbar = true;
             Model = "multilingual";
             PythonPath = "";
-            SettingsVersion = 4;
+            SettingsVersion = 5;
             Device = "auto";
             InputMode = "auto";
             ClassificationPrompt = DefaultPrompt;
             MinConfidence = 0.25;
-            DebounceMilliseconds = 1000;
+            DebounceMilliseconds = 500;
             HoldSeconds = 4;
             ExcludedProcesses = new[] { "1Password", "Bitwarden", "KeePass", "KeePassXC", "LastPass", "Dashlane", "NordPass" };
             Emotions = DefaultEmotions();
@@ -150,6 +150,11 @@ namespace EmotionCat
                     if (settings.ClassificationPrompt == "문장에서 드러나는 화자의 감정은 무엇인가요? 감정이 드러나지 않으면 무감정입니다.") settings.ClassificationPrompt = DefaultPrompt;
                     if (settings.MinConfidence == 0.35) settings.MinConfidence = 0.25;
                     settings.SettingsVersion = 4;
+                }
+                if (!fields.ContainsKey("SettingsVersion") || settings.SettingsVersion < 5)
+                {
+                    if (settings.DebounceMilliseconds == 1000) settings.DebounceMilliseconds = 500;
+                    settings.SettingsVersion = 5;
                 }
                 settings.Normalize();
                 return settings;

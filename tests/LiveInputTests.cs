@@ -28,7 +28,7 @@ internal static class LiveInputTests
             using (var app = new AppController(false, false, true, child.Id, "auto"))
             using (var starter = new System.Windows.Forms.Timer { Interval = 100 })
             {
-                app.Settings.InputEnabled = true; app.Settings.DebounceMilliseconds = 1000; app.ApplySettings();
+                app.Settings.InputEnabled = true; app.Settings.DebounceMilliseconds = 500; app.ApplySettings();
                 var cat = (CatOverlay)typeof(AppController).GetField("overlay", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(app);
                 cat.Show();
                 starter.Tick += async delegate
@@ -42,7 +42,7 @@ internal static class LiveInputTests
                         AllowSetForegroundWindow((uint)child.Id); love.Set();
                         await Until(() => app.CaptureCount > 0, 5000, "global love capture");
                         long captureMs = clock.ElapsedMilliseconds;
-                        if (captureMs < 900 || captureMs > 1700) throw new Exception("one-second capture timing: " + captureMs);
+                        if (captureMs < 450 || captureMs > 950) throw new Exception("half-second capture timing: " + captureMs);
                         if (app.LastInputText != "사랑해") throw new Exception("auto Korean capture expected 사랑해, got owned fixture: " + app.LastInputText);
                         await Until(() => app.ResponseCount > 0, 5000, "love response");
                         AssertFrame(app, cat, "love");
@@ -87,7 +87,7 @@ internal static class LiveInputTests
         using (var modifiers = EventWaitHandle.OpenExisting(tag + ".modifiers"))
         using (var done = EventWaitHandle.OpenExisting(tag + ".done"))
         using (var window = new Form { Text = "EmotionCat input verification", Width = 420, Height = 110, TopMost = true, StartPosition = FormStartPosition.CenterScreen })
-        using (var timer = new System.Windows.Forms.Timer { Interval = 80 })
+        using (var timer = new System.Windows.Forms.Timer { Interval = 40 })
         {
             var keys = new Queue<int>();
             IntPtr inputContext = IntPtr.Zero;
@@ -107,7 +107,7 @@ internal static class LiveInputTests
                 if (modifiers.WaitOne(0)) { window.Activate(); SetForegroundWindow(window.Handle); keys.Enqueue(160); keys.Enqueue(162); keys.Enqueue(37); }
                 if (keys.Count > 0)
                 {
-                    if (GetForegroundWindow() != window.Handle) { keys.Clear(); return; }
+                    if (GetForegroundWindow() != window.Handle) { FocusFixture(window); return; }
                     int key = keys.Dequeue();
                     var input = new[] { new INPUT { Type = 1, Data = new InputUnion { Keyboard = new KEYBDINPUT { Vk = (ushort)key, Scan = (ushort)MapVirtualKey((uint)key, 0) } } }, new INPUT { Type = 1, Data = new InputUnion { Keyboard = new KEYBDINPUT { Vk = (ushort)key, Scan = (ushort)MapVirtualKey((uint)key, 0), Flags = 2 } } } };
                     if (SendInput(2, input, Marshal.SizeOf(typeof(INPUT))) != 2) { window.Close(); return; }
@@ -117,12 +117,24 @@ internal static class LiveInputTests
             if (inputContext != IntPtr.Zero) ImmDestroyContext(inputContext);
         }
     }
+    static void FocusFixture(Form window)
+    {
+        uint process;
+        uint foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out process);
+        uint fixtureThread = GetCurrentThreadId();
+        bool attached = foregroundThread != fixtureThread && AttachThreadInput(fixtureThread, foregroundThread, true);
+        try { window.Activate(); SetForegroundWindow(window.Handle); }
+        finally { if (attached) AttachThreadInput(fixtureThread, foregroundThread, false); }
+    }
     [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint Type; public InputUnion Data; }
     [StructLayout(LayoutKind.Explicit)] struct InputUnion { [FieldOffset(0)] public KEYBDINPUT Keyboard; [FieldOffset(0)] public MOUSEINPUT Mouse; }
     [StructLayout(LayoutKind.Sequential)] struct KEYBDINPUT { public ushort Vk, Scan; public uint Flags, Time; public UIntPtr Extra; }
     [StructLayout(LayoutKind.Sequential)] struct MOUSEINPUT { public int X, Y; public uint Data, Flags, Time; public UIntPtr Extra; }
     [DllImport("user32.dll")] static extern uint SendInput(uint count, INPUT[] input, int size);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] static extern bool AttachThreadInput(uint first, uint second, bool attach);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(uint process);
     [DllImport("user32.dll")] static extern uint MapVirtualKey(uint code, uint type);
