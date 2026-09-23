@@ -130,6 +130,13 @@ namespace EmotionCat
         }
         void RefreshStatus() { if (form != null && !form.IsDisposed) form.UpdateStatus(); }
         async void StartModel() { await RestartModel(); }
+        public async Task RestartModel()
+        {
+            if (restarting || exiting) return;
+            restarting = true;
+            try { InvalidateRequests(); Client.Stop(); await Client.StartAsync(Settings); ModelStatus = Client.Status; RefreshStatus(); }
+            finally { restarting = false; }
+        }
         void InvalidateRequests() { requestVersion++; queuedText = null; }
         void QueueText(string text, long context)
         {
