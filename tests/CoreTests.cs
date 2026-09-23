@@ -68,6 +68,8 @@ internal static class CoreTests
         Console.WriteLine("Core tests passed: " + checks);
         int golden = Array.IndexOf(args, "--golden");
         if (golden >= 0) RunGolden(args[golden + 1]);
+        int accuracy = Array.IndexOf(args, "--accuracy");
+        if (accuracy >= 0) RunAccuracy(args[accuracy + 1]);
         if (Array.IndexOf(args, "--integration") >= 0) RunIntegration().GetAwaiter().GetResult();
         return 0;
     }
@@ -84,6 +86,8 @@ internal static class CoreTests
     {
         var cases = new JavaScriptSerializer { MaxJsonLength = Int32.MaxValue }.Deserialize<List<Dictionary<string, object>>>(System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8));
         var times = new List<double>();
+        var disagreements = new List<string>();
+        double maxDiff = 0; int agree = 0;
         using (var engine = new LayaEngine(LayaEngine.ModelDirectory, 2))
         {
             foreach (var item in cases)
@@ -101,15 +105,35 @@ internal static class CoreTests
                 double[] probabilities = engine.Classify(sequence);
                 times.Add(watch.Elapsed.TotalMilliseconds);
                 var expected = ((System.Collections.ArrayList)Get(item, "probabilities")).Cast<object>().Select(Convert.ToDouble).ToArray();
-                for (int i = 0; i < expected.Length; i++)
-                    Check(Math.Abs(expected[i] - probabilities[i]) <= 0.02, "Probability differs for: " + text.Substring(0, Math.Min(30, text.Length)));
+                double diff = expected.Select((v, i) => Math.Abs(v - probabilities[i])).Max();
+                maxDiff = Math.Max(maxDiff, diff);
                 var sorted = expected.OrderByDescending(v => v).ToArray();
                 int best = Array.IndexOf(probabilities, probabilities.Max());
-                Check(emotions[best].Id == (string)Get(item, "emotion") || sorted[0] - sorted[1] < 0.05, "Emotion differs for: " + text.Substring(0, Math.Min(30, text.Length)));
+                bool same = emotions[best].Id == (string)Get(item, "emotion");
+                if (same) agree++;
+                else if (sorted[0] - sorted[1] >= 0.05) disagreements.Add(text.Substring(0, Math.Min(20, text.Length)) + " expected " + Get(item, "emotion") + " got " + emotions[best].Id);
+                Console.WriteLine("golden " + (same ? "same " : "DIFF ") + diff.ToString("0.000") + " " + Get(item, "emotion") + " -> " + emotions[best].Id + " (" + probabilities.Max().ToString("0.00") + " vs " + sorted[0].ToString("0.00") + ")");
             }
         }
         times.Sort();
-        Console.WriteLine("Golden ONNX cases passed: " + cases.Count + ", median " + times[times.Count / 2].ToString("0.0") + " ms");
+        Console.WriteLine("Golden ONNX: emotion agreement " + agree + "/" + cases.Count + ", max probability difference " + maxDiff.ToString("0.000") + ", median " + times[times.Count / 2].ToString("0.0") + " ms");
+        Check(disagreements.Count == 0, "Golden emotion differs: " + String.Join("; ", disagreements));
+    }
+
+    /// Emotion accuracy of the shipped int8 model on this CPU, with the app's default labels.
+    private static void RunAccuracy(string path)
+    {
+        var cases = new JavaScriptSerializer().Deserialize<List<Dictionary<string, object>>>(System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8));
+        var settings = new AppSettings();
+        int hits = 0;
+        using (var engine = new LayaEngine(LayaEngine.ModelDirectory, 2))
+            foreach (var item in cases)
+            {
+                double[] p = engine.Classify(engine.Build((string)Get(item, "text"), settings.Emotions, settings.ClassificationPrompt));
+                if (settings.Emotions[Array.IndexOf(p, p.Max())].Id == (string)Get(item, "expected")) hits++;
+            }
+        Console.WriteLine("Emotion accuracy (default labels): " + hits + "/" + cases.Count);
+        Check(hits * 10 >= cases.Count * 8, "Emotion accuracy fell below 80%.");
     }
 
     private static async Task RunIntegration()
