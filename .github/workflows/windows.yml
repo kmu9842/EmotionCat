@@ -42,4 +42,4 @@ jobs:
         run: |
           Remove-Item -LiteralPath EmotionCat.exe -Force
           ./build.ps1
-          ./tests/run-core-tests.ps1 -Golden tests/onnx-golden.json -Integration
+          ./tests/run-core-tests.ps1 -Golden tests/onnx-golden.json -Accuracy tests/emotion-cases.json -Integration
