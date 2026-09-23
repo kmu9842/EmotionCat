@@ -28,7 +28,7 @@ namespace EmotionCat
         readonly CheckBox enabled;
         readonly Button testButton;
         EmotionDefinition selected;
-        bool loading;
+        bool loading, testing;
         public SettingsForm(AppController app)
         {
             this.app = app; settings = app.Settings;
@@ -93,7 +93,7 @@ namespace EmotionCat
             enabled.CheckedChanged += delegate { if (!loading) { settings.InputEnabled = enabled.Checked; app.ApplySettings(); } }; connection.Controls.Add(enabled);
             inputStatus = LabelAt(connection, "입력 대기", 20, 278, 371, 37, 8.5f, false); inputStatus.ForeColor = Muted;
             ButtonAt(connection, "입력 확인 · 분류 지시문", 20, 321, 370, 35, delegate { new DiagnosticsForm(app).Show(this); }, false);
-            LabelAt(connection, "암호 필드·제외 앱 제외 · 입력 내용 저장 안 함", 20, 374, 372, 44, 8.5f, false).ForeColor = Muted;
+            LabelAt(connection, "GPU 필수 · 사용할 수 없으면 감정 분석 꺼짐\n암호 필드·제외 앱 제외 · 입력 내용 저장 안 함", 20, 374, 372, 44, 8.5f, false).ForeColor = Muted;
             Panel tester = Card(sections[1], 424, 0, 420, 426);
             LabelAt(tester, "분류 테스트", 20, 17, 380, 28, 13, true);
             testInput = TextAt(tester, 20, 93, 380, 92, true); testInput.MaxLength = 1000;
@@ -223,33 +223,38 @@ namespace EmotionCat
         void RemoveEmotion()
         {
             if (selected == null) return;
-            if (selected.Id == "neutral") { MessageBox.Show(this, "기본 감정은 대기 표정으로 사용해요.", "표정 연결"); return; }
+            if (selected.Id == "neutral" || selected.Id == "angry") { MessageBox.Show(this, "평온은 대기 표정, 화남은 욕설 반응에 필요해요.", "표정 연결"); return; }
             if (settings.Emotions.Count <= 2) { MessageBox.Show(this, "Laya에는 감정이 2개 이상 필요해요.", "표정 연결"); return; }
             settings.Emotions.Remove(selected); app.SaveSettings(); RefreshEmotions("neutral");
         }
         async Task TestSentence()
         {
             if (String.IsNullOrWhiteSpace(testInput.Text)) { testResult.Text = "테스트할 문장을 입력해 주세요."; return; }
-            testButton.Enabled = false; testResult.Text = "Laya가 표정을 고르고 있어요…";
+            testing = true; testButton.Enabled = false; testResult.Text = "Laya가 표정을 고르고 있어요…";
             try
             {
                 var result = await app.Analyze(testInput.Text);
                 var emotion = settings.Emotions.Find(x => x.Id == result.Emotion);
                 testResult.Text = "→  " + (emotion == null ? result.Emotion : emotion.Name) + "\n모델 점수 " + result.Confidence.ToString("P0") + "  ·  " + result.ElapsedMs.ToString("0") + " ms";
+                if (result.Source == "profanity-rule") testResult.Text = "→  화남\n욕설 우선 규칙";
+                else if (result.Source == "korean-rule") testResult.Text = "→  " + (emotion == null ? result.Emotion : emotion.Name) + "\n한국어 표현 규칙";
             }
             catch (Exception ex) { if (!IsDisposed) testResult.Text = "연결 상태를 확인해 주세요.\n" + ex.Message; }
-            finally { if (!IsDisposed) testButton.Enabled = true; }
+            finally { testing = false; if (!IsDisposed) testButton.Enabled = app.Client.IsReady; }
         }
         public void UpdateStatus()
         {
             if (IsDisposed) return;
-            status.Text = app.Client.IsReady ? "●  Laya 연결됨 · 내 PC에서 실행" : "●  Laya 연결 대기";
-            status.ForeColor = app.Client.IsReady ? Color.FromArgb(71, 128, 107) : Muted;
+            status.Text = app.Client.IsReady ? "●  GPU 연결됨" : app.Client.UnavailableReason == null ? "●  GPU 연결 대기" : "●  GPU 오류 · 분석 꺼짐";
+            status.ForeColor = app.Client.IsReady ? Color.FromArgb(71, 128, 107) : app.Client.UnavailableReason == null ? Muted : Color.Firebrick;
             modelStatus.Text = app.ModelStatus;
+            modelStatus.ForeColor = app.Client.UnavailableReason == null ? Muted : Color.Firebrick;
             inputStatus.Text = app.InputStatus;
             pipeline.Text = app.PipelineSummary + "\n" + app.DecisionSummary;
             if (app.Client.IsReady) status.Text = "●  " + app.Client.DeviceDescription;
             loading = true; enabled.Checked = settings.InputEnabled; loading = false;
+            enabled.Enabled = app.Client.IsReady;
+            testButton.Enabled = app.Client.IsReady && !testing;
         }
         static Panel Card(Control owner, int x, int y, int w, int h) { var panel = new Panel { Location = new Point(x, y), Size = new Size(w, h), BackColor = Color.White }; owner.Controls.Add(panel); return panel; }
         static Label LabelAt(Control owner, string text, int x, int y, int w, int h, float size, bool bold) { var label = new Label { Text = text, Location = new Point(x, y), Size = new Size(w, h), Font = new Font("Malgun Gothic", size, bold ? FontStyle.Bold : FontStyle.Regular), ForeColor = Ink }; owner.Controls.Add(label); return label; }

@@ -1,0 +1,6 @@
+onnx==1.19.0
+onnxconverter-common==1.16.0
+numpy==2.5.3
+protobuf==7.36.2
+ml_dtypes==0.6.0
+typing_extensions==4.16.0

@@ -18,6 +18,7 @@ namespace EmotionCat
         public Dictionary<string, double> Probabilities { get; set; }
         public string Device { get; set; }
         public string Model { get; set; }
+        public string Source { get; set; }
     }
 
     /// Runs Laya inside this process with ONNX Runtime. No Python, no local server, no network.
@@ -31,13 +32,19 @@ namespace EmotionCat
         private int classifying;
         private bool disposed;
         private int requests, successes;
+        private readonly Func<LayaEngine> createEngine;
 
         public event Action<string> StatusChanged;
         public event Action HealthChanged;
+        public event Action<string> InferenceUnavailable;
         public string DeviceDescription { get; private set; }
         public string Diagnostics { get; private set; }
         public string Status { get { lock (gate) return status; } }
         public bool IsReady { get { return ready; } }
+        public string UnavailableReason { get; private set; }
+
+        public LayaClient() : this(null) { }
+        internal LayaClient(Func<LayaEngine> engineFactory) { createEngine = engineFactory; }
 
         public async Task StartAsync(AppSettings settings)
         {
@@ -49,17 +56,17 @@ namespace EmotionCat
                 if (session != null) return;
                 session = new CancellationTokenSource();
                 current = session;
+                UnavailableReason = null;
             }
             SetStatus("감정 모델 불러오는 중…", false, current);
             try
             {
-                if (!LayaEngine.IsInstalled) throw new FileNotFoundException("감정 모델 파일이 없습니다. EmotionCat을 다시 설치해 주세요.");
-                int threads = Math.Max(1, Math.Min(4, Environment.ProcessorCount / 2));
+                if (createEngine == null && !LayaEngine.IsInstalled) throw new FileNotFoundException("GPU 감정 모델 파일이 없습니다. EmotionCat을 다시 설치해 주세요.");
                 var emotions = settings.Emotions.ToList();
                 string prompt = settings.ClassificationPrompt;
                 LayaEngine loaded = await Task.Run(() =>
                 {
-                    var created = new LayaEngine(LayaEngine.ModelDirectory, threads);
+                    var created = createEngine == null ? new LayaEngine(LayaEngine.ModelDirectory, 1) : createEngine();
                     try { created.Classify(created.Build("안녕하세요", emotions, prompt)); }  // warm up kernels without user text
                     catch { created.Dispose(); throw; }
                     return created;
@@ -69,20 +76,18 @@ namespace EmotionCat
                     if (session != current || current.IsCancellationRequested) { loaded.Dispose(); return; }
                     engine = loaded;
                 }
-                DeviceDescription = "CPU · 내 PC에서 실행";
+                DeviceDescription = "GPU · DirectML";
                 Diagnostics = "요청 0 · 완료 0";
                 SetStatus("연결됨 · " + DeviceDescription, true, current);
                 var handler = HealthChanged; if (handler != null) handler();
             }
             catch (DllNotFoundException)
             {
-                SetStatus("onnxruntime.dll을 찾을 수 없습니다. EmotionCat을 다시 설치해 주세요.", false, current);
-                ReleaseSession(current);
+                DisableInference("GPU 실행 파일을 불러올 수 없어 감정 분석을 껐습니다. 앱을 다시 설치해 주세요.", current);
             }
             catch (Exception ex)
             {
-                SetStatus("감정 모델을 불러오지 못했습니다: " + ShortError(ex.Message), false, current);
-                ReleaseSession(current);
+                DisableInference("GPU를 사용할 수 없어 감정 분석을 껐습니다. GPU·드라이버·모델을 확인해 주세요.\n" + ShortError(ex.Message), current);
             }
         }
 
@@ -109,7 +114,12 @@ namespace EmotionCat
                 string prompt = instructions.Trim();
                 Interlocked.Increment(ref requests);
                 var watch = Stopwatch.StartNew();
-                double[] probabilities = await Task.Run(() => current.Classify(current.Build(clipped, choices, prompt)));
+                bool profanity = KoreanEmotionRules.HasProfanity(clipped);
+                if (profanity && !choices.Any(e => e.Id == "angry")) throw new InvalidOperationException("욕설에 사용할 화남 표정이 없습니다.");
+                string explicitEmotion = KoreanEmotionRules.ExplicitEmotion(clipped);
+                if (!choices.Any(e => e.Id == explicitEmotion)) explicitEmotion = null;
+                double[] probabilities = explicitEmotion != null ? choices.Select(e => e.Id == explicitEmotion ? 1.0 : 0.0).ToArray()
+                    : await Task.Run(() => current.Classify(current.Build(KoreanEmotionRules.PrepareText(clipped), choices, prompt)));
                 watch.Stop();
                 if (currentSession.IsCancellationRequested) return null;
                 int best = 0;
@@ -123,13 +133,14 @@ namespace EmotionCat
                 return new ClassificationResult
                 {
                     Emotion = choices[best].Id, RawEmotion = choices[best].Id, Confidence = Math.Round(LayaEngine.Confidence(probabilities), 4),
-                    ElapsedMs = elapsed, Probabilities = byId, Device = "cpu", Model = "multilingual"
+                    ElapsedMs = elapsed, Probabilities = byId, Device = "directml", Model = "multilingual", Source = profanity ? "profanity-rule" : explicitEmotion != null ? "korean-rule" : "gpu-model"
                 };
             }
             catch (ObjectDisposedException) { return null; }
-            catch (Exception)
+            catch (Exception ex)
             {
-                if (currentSession != null && !currentSession.IsCancellationRequested) SetStatus("감정 분석에 실패했습니다. 다음 입력에서 다시 시도합니다.", ready, currentSession);
+                if (currentSession != null && !currentSession.IsCancellationRequested)
+                    DisableInference("GPU 분석에 실패하여 감정 분석을 껐습니다. 설정에서 GPU 연결을 다시 시도해 주세요.\n" + ShortError(ex.Message), currentSession);
                 return null;
             }
             finally { Interlocked.Exchange(ref classifying, 0); }
@@ -194,6 +205,18 @@ namespace EmotionCat
             }
             // Waits for an in-flight inference; the model memory is freed immediately afterwards.
             if (released != null) released.Dispose();
+        }
+
+        private void DisableInference(string reason, CancellationTokenSource current)
+        {
+            lock (gate)
+            {
+                if (session != current || current.IsCancellationRequested) return;
+                UnavailableReason = reason;
+            }
+            SetStatus(reason, false, current);
+            ReleaseSession(current);
+            var handler = InferenceUnavailable; if (handler != null) handler(reason);
         }
 
         public void Stop()
