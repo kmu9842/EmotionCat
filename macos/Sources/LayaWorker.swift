@@ -195,7 +195,7 @@ final class LayaWorker {
                         self.report("Laya 설치 완료")
                     } else {
                         let detail = output.latestLine()
-                        self.report(detail.isEmpty ? "Laya 설치 실패. Python 버전과 인터넷 연결을 확인해 주세요." : "Laya 설치 실패 · " + detail)
+                        self.report(detail.isEmpty ? "Laya 설치 실패. 인터넷 연결과 저장 공간을 확인해 주세요." : "Laya 설치 실패 · " + detail)
                     }
                     callback?(success)
                 }

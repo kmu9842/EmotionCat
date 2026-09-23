@@ -32,30 +32,42 @@ while [[ $# -gt 0 ]]; do
 done
 [[ "$model" == multilingual ]] || { usage >&2; exit 2; }
 
-valid_python() {
-    "$1" -c 'import sys,platform; maximum=(3,11) if sys.platform=="darwin" and platform.machine()=="x86_64" else (3,13); sys.exit(0 if (3,10)<=sys.version_info[:2]<=maximum and sys.maxsize>2**32 else 1)' >/dev/null 2>&1
+# Users never install Python: a pinned standalone CPython is downloaded and verified.
+python_release='20260901'
+python_version='3.11.16'
+standalone_python() {
+    local target triple digest archive url
+    target="$1"
+    case "$(uname -s):$(uname -m)" in
+        Darwin:arm64) triple=aarch64-apple-darwin; digest=50424fa409e8ae84b82a3052522f64695b47dff2158b70bb7358e0ebd6c085c9 ;;
+        Darwin:x86_64) triple=x86_64-apple-darwin; digest=167cc15cf4eeb72944a67bbd2f7120c45fded17d5043d5db64b3144d7adc30ae ;;
+        Linux:x86_64) triple=x86_64-unknown-linux-gnu; digest=faa0758583a63f14c5eee516af82738403b59c13edda6fc0a21d953febd89eed ;;
+        *) printf '%s\n' "지원하지 않는 시스템입니다: $(uname -s) $(uname -m)" >&2; return 1 ;;
+    esac
+    if [[ -x "$target/bin/python3" ]] && "$target/bin/python3" -c "import sys; sys.exit(0 if sys.version.startswith('$python_version') else 1)" 2>/dev/null; then
+        return 0
+    fi
+    archive="$(mktemp "${TMPDIR:-/tmp}/emotioncat-python.XXXXXX")"
+    url="https://github.com/astral-sh/python-build-standalone/releases/download/$python_release/cpython-$python_version+$python_release-$triple-install_only.tar.gz"
+    printf '%s\n' '실행 환경을 내려받는 중… (약 20MB)'
+    curl -fL --retry 3 --silent --show-error -o "$archive" "$url"
+    [[ "$(shasum -a 256 "$archive" | cut -d' ' -f1)" == "$digest" ]] || { rm -f "$archive"; printf '%s\n' '실행 환경 파일이 손상되었습니다. 다시 시도해 주세요.' >&2; return 1; }
+    rm -rf "$target.tmp" && mkdir -p "$target.tmp"
+    tar -xzf "$archive" -C "$target.tmp" --strip-components 1
+    rm -f "$archive"
+    rm -rf "$target" && mv "$target.tmp" "$target"
 }
+if [[ "$explicit_data" == 0 ]]; then
+    case "$(uname -s)" in
+        Darwin) data_dir="$HOME/Library/Application Support/EmotionCat/inference" ;;
+        *) data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/EmotionCat/inference" ;;
+    esac
+fi
+mkdir -p "$data_dir"
+data_dir="$(cd "$data_dir" && pwd -P)"
 if [[ -z "$python_bin" ]]; then
-    for candidate in python3.11 python3.10 python3.12 python3.13 python3; do
-        candidate_path="$(command -v "$candidate" 2>/dev/null || true)"
-        # Apple's developer-tools stub can open an Xcode installation dialog.
-        if [[ "$(uname -s)" == Darwin && "$candidate_path" == /usr/bin/python3 ]]; then
-            continue
-        fi
-        if [[ -n "$candidate_path" ]] && valid_python "$candidate_path"; then
-            python_bin="$candidate_path"
-            break
-        fi
-    done
-fi
-if [[ -z "$python_bin" ]] || ! valid_python "$python_bin"; then
-    printf '%s\n' 'Python 3.10-3.13 (64-bit) is required. Intel Mac: use Python 3.10-3.11. Install Python, then retry or pass --python /path/to/python3.' >&2
-    exit 1
-fi
-if [[ "$explicit_data" == 1 ]]; then
-    data_dir="$("$python_bin" "$resources/runtime_paths.py" --data-dir "$data_dir")"
-else
-    data_dir="$("$python_bin" "$resources/runtime_paths.py")"
+    standalone_python "$data_dir/python"
+    python_bin="$data_dir/python/bin/python3"
 fi
 mkdir -p "$data_dir"
 status_file="$data_dir/status.json"
@@ -80,14 +92,14 @@ terminate_child() {
 on_stop() {
     trap - TERM INT HUP ERR
     terminate_child
-    write_status error 'Laya setup was cancelled. Run setup again to resume.' || true
+    write_status error '설치가 취소되었습니다. 다시 설치하면 이어서 진행합니다.' || true
     exit 130
 }
 on_error() {
     local code="$1"
     trap - ERR
     terminate_child
-    write_status error 'Laya setup failed. Check the displayed output, Python version, available space and network; retry to resume.' || true
+    write_status error '설치에 실패했습니다. 인터넷 연결과 저장 공간을 확인한 뒤 다시 시도해 주세요.' || true
     exit "$code"
 }
 trap on_stop TERM INT HUP
@@ -100,16 +112,13 @@ run() {
 }
 
 worker_python="$data_dir/.venv/bin/python3"
-write_status installing 'Preparing isolated Python runtime...'
-if [[ ! -x "$worker_python" ]]; then
+write_status installing '실행 환경 준비 중…'
+if ! "$worker_python" -c "import sys; sys.exit(0 if sys.version.startswith('$python_version') else 1)" 2>/dev/null; then
+    rm -rf "$data_dir/.venv"
     run "$python_bin" -m venv "$data_dir/.venv"
 fi
-if ! valid_python "$worker_python"; then
-    write_status error 'The existing runtime uses an unsupported Python version. Choose a new --data-dir or reinstall its .venv with a compatible Python.'
-    exit 1
-fi
 runtime_platform="$("$worker_python" -c 'import sys,platform; print(sys.platform+":"+platform.machine())')"
-write_status installing 'Installing CPU PyTorch (first install can take several minutes)...'
+write_status installing 'AI 엔진 설치 중… (처음에는 몇 분 걸립니다)'
 case "$runtime_platform" in
     darwin:arm64)
         # macOS CPU/MPS wheels are published on PyPI, not the Linux CPU index.
@@ -120,19 +129,19 @@ case "$runtime_platform" in
     linux:*)
         run "$worker_python" -m pip install --disable-pip-version-check 'torch==2.8.0' --index-url https://download.pytorch.org/whl/cpu ;;
     *)
-        write_status error "Unsupported installer platform: $runtime_platform. On Windows use setup-laya.ps1."
+        write_status error "지원하지 않는 시스템입니다: $runtime_platform"
         exit 1 ;;
 esac
-write_status installing 'Installing Laya SDK...'
+write_status installing '감정 분석 라이브러리 설치 중…'
 run "$worker_python" -m pip install --disable-pip-version-check -r "$resources/requirements.txt"
-write_status installing 'Checking Laya and ModernBERT runtime imports...'
+write_status installing '설치 확인 중…'
 run "$worker_python" -c 'from transformers.models.modernbert.modeling_modernbert import ModernBertModel; import laya; print("Laya runtime imports verified", flush=True)'
 size='843 MB'
 [[ "$model" != multilingual ]] || size='644 MB'
-write_status downloading "Downloading $model model (about $size; runtime packages are additional)..."
+write_status downloading "감정 모델 내려받는 중… (약 $size)"
 download_args=(--model "$model")
 if [[ "$explicit_data" == 1 ]]; then
     download_args+=(--data-dir "$data_dir")
 fi
 run "$worker_python" -u "$resources/download_model.py" "${download_args[@]}"
-write_status ready "Laya $model is installed. Enable Laya in EmotionCat settings."
+write_status ready '설치 완료'

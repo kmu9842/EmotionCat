@@ -11,6 +11,7 @@ final class KeyboardMonitor {
     private var eventTap: CFMachPort?
     private var eventSource: CFRunLoopSource?
     private var activationObserver: NSObjectProtocol?
+    private var permissionTimer: Timer?
     private var pendingRead: DispatchWorkItem?
     private let systemElement = AXUIElementCreateSystemWide()
     private let buffer = TypedTextBuffer()
@@ -48,10 +49,12 @@ final class KeyboardMonitor {
             }
         }
         if eventTap == nil { installTap() }
+        if eventTap == nil && !CGPreflightListenEventAccess() { requestPermissions() }
         reportStatus()
     }
     func stop() {
         isStarted = false; clearCapture()
+        permissionTimer?.invalidate(); permissionTimer = nil
         if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
         if let source = eventSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
         eventSource = nil; eventTap = nil
@@ -63,9 +66,22 @@ final class KeyboardMonitor {
         let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
         if isStarted && eventTap == nil { installTap() }
+        waitForPermission()
         reportStatus()
     }
+    /// Picks up a permission granted in System Settings without restarting the app.
+    private func waitForPermission() {
+        guard eventTap == nil, permissionTimer == nil else { return }
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+            guard let self = self else { timer.invalidate(); return }
+            if self.isStarted && self.eventTap == nil { self.installTap() }
+            if self.eventTap != nil || !self.isStarted {
+                timer.invalidate(); self.permissionTimer = nil; self.reportStatus()
+            }
+        }
+    }
     deinit {
+        permissionTimer?.invalidate()
         pendingRead?.cancel()
         if let tap = eventTap { CFMachPortInvalidate(tap) }
         if let source = eventSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }

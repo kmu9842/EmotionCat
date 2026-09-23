@@ -7,7 +7,9 @@
 [Releases](https://github.com/kmu9842/EmotionCat/releases/latest)에서 OS별 ZIP을 받으세요.
 
 - **Windows 10/11 x64:** `EmotionCat-<버전>-windows-x64.zip` 압축을 쓰기 가능한 폴더에 풀고 `EmotionCat.exe`를 실행합니다.
-- **macOS 12+ (Universal):** `EmotionCat-<버전>-macOS-universal.zip` 압축을 풀어 `EmotionCat.app`을 `/Applications`로 옮깁니다. ad-hoc 서명이므로 차단되면 `xattr -dr com.apple.quarantine /Applications/EmotionCat.app`을 실행합니다.
+- **macOS 12+ (Universal):** `EmotionCat-<버전>-macOS-universal.zip` 압축을 풀어 `EmotionCat.app`을 `/Applications`로 옮깁니다. ad-hoc 서명이므로 차단되면 `xattr -dr com.apple.quarantine /Applications/EmotionCat.app`을 실행합니다. 첫 실행 때 뜨는 **입력 모니터링**·**손쉬운 사용** 권한을 허용하면 바로 동작합니다.
+
+처음 실행하면 감정 모델이 자동으로 설치됩니다. Python 등 다른 프로그램을 설치할 필요가 없습니다.
 - **Linux:** 데스크톱 앱은 아직 없습니다.
 
 `v*` 태그를 push하면 `.github/workflows/release.yml`이 두 OS를 빌드해 릴리스로 게시합니다.
@@ -20,11 +22,9 @@ EmotionCat.exe 또는 Start EmotionCat.cmd를 실행하세요. 고양이를 우�
 - **Laya / 입력:** 전역 키보드 문자를 기록해 Laya에 전달합니다. '입력 확인 · 분류 지시문'에서 최근 입력, 전달/응답 횟수, 실제 모델 결과와 지시문을 확인할 수 있습니다. 한/영 자동 감지가 맞지 않는 입력기는 한글 두벌식 또는 영문 모드를 선택할 수 있습니다.
 - **모양 / 동작:** 크기, 작업표시줄 정렬, 문자 입력 후 대기 시간과 표정 유지 시간을 조절합니다. 키 입력 즉시 발이 움직입니다.
 
-현재 설치된 NVIDIA 환경은 CUDA를 사용합니다. 새 컴퓨터에서는 Python 3.10–3.13 x64를 설치한 뒤 설정의 모델 설치를 누르거나 다음을 실행하세요.
+처음 실행하면 감정 모델을 자동으로 설치합니다. **Python을 따로 설치할 필요가 없습니다.** 앱이 전용 실행 환경(Python 3.11, 체크섬 검증)을 직접 내려받아 앱 폴더 안에서만 사용합니다. 설치가 실패하면 설정의 **모델 설치**를 다시 누르면 이어서 진행합니다.
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-laya.ps1
-
-설치기는 NVIDIA GPU를 감지하면 CUDA 12.8 PyTorch를 설치하고, 없으면 CPU용 런타임을 설치합니다. GPU 런타임은 최초 약 3.5GB 다운로드이며 모델 파일은 약 644MB입니다. 런타임 설치 크기와 실행 중 GPU 메모리는 다릅니다.
+NVIDIA GPU가 있으면 GPU용 AI 엔진(최초 약 3.5GB), 없으면 CPU용을 설치합니다. 모델 파일은 약 644MB입니다.
 
 ## 입력과 응답
 

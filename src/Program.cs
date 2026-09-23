@@ -95,7 +95,7 @@ namespace EmotionCat
             Client.HealthChanged += delegate { OnUI(delegate { RefreshStatus(); }); };
             idle.Tick += delegate { idle.Stop(); ShowEmotion("neutral"); };
             ApplySettings();
-            if (!previewOnly) { monitor.Start(); StartModel(); }
+            if (!previewOnly) { monitor.Start(); if (ModelInstalled) StartModel(); else InstallModel(); }
             else { InputStatus = "미리보기 모드 · 전역 입력 인식 꺼짐"; ModelStatus = "미리보기 모드 · 연결 버튼으로 Laya 테스트 가능"; }
             if (!renderOnly && (firstRun || showSettings || previewOnly)) OpenSettings();
         }
@@ -130,6 +130,10 @@ namespace EmotionCat
         }
         void RefreshStatus() { if (form != null && !form.IsDisposed) form.UpdateStatus(); }
         async void StartModel() { await RestartModel(); }
+        static bool ModelInstalled
+        {
+            get { return File.Exists(Path.Combine(AppSettings.BaseDirectory, "inference", "models", "multilingual", "emotioncat-model.json")); }
+        }
         public async Task RestartModel()
         {
             if (restarting || installing || exiting) return;
@@ -148,7 +152,8 @@ namespace EmotionCat
                 var start = new ProcessStartInfo("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Model multilingual -Device " + (Settings.Device == "cpu" ? "cpu" : "auto"))
                 {
                     WorkingDirectory = AppSettings.BaseDirectory, UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden,
-                    RedirectStandardOutput = true, RedirectStandardError = true
+                    RedirectStandardOutput = true, RedirectStandardError = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8
                 };
                 int code = await Task.Run(() =>
                 {
@@ -159,7 +164,7 @@ namespace EmotionCat
                         process.Start(); process.BeginOutputReadLine(); process.BeginErrorReadLine(); process.WaitForExit(); return process.ExitCode;
                     }
                 });
-                if (code != 0) throw new InvalidOperationException("설치에 실패했어요. Python 3.10–3.13과 인터넷 연결을 확인해 주세요.");
+                if (code != 0) throw new InvalidOperationException("설치에 실패했어요. 인터넷 연결과 저장 공간을 확인한 뒤 설정에서 다시 설치해 주세요.");
                 ModelStatus = "설치 완료 · 연결 준비 중";
             }
             catch (Exception ex) { ModelStatus = ex.Message; RefreshStatus(); return; }
