@@ -1,0 +1,46 @@
+name: Windows build
+on:
+  workflow_dispatch:
+  push:
+    paths: ["src/**", "tests/**", "build.ps1", "app.manifest", ".github/workflows/windows.yml"]
+  pull_request:
+    paths: ["src/**", "tests/**", "build.ps1", "app.manifest", ".github/workflows/windows.yml"]
+permissions:
+  contents: read
+env:
+  MODEL_RELEASE: model-v1
+  MODEL_SHA256: 0ba46ec65f06ecaf876eed8a75efbeb8cafc3fbc275ba5146cee2fd7939db118
+  TOKENIZER_SHA256: 32fa4053b15e4ea0791340f1092e93eb682b158d7c35972c933f46ab03bc22b4
+  ORT_WIN_URL: https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip
+  ORT_WIN_SHA256: 0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node 24
+        with:
+          persist-credentials: false
+      - name: Fetch ONNX Runtime and the bundled model (SHA-256 pinned)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          Invoke-WebRequest -UseBasicParsing $env:ORT_WIN_URL -OutFile ort.zip
+          if ((Get-FileHash ort.zip -Algorithm SHA256).Hash.ToLower() -ne $env:ORT_WIN_SHA256) { throw 'ONNX Runtime checksum mismatch.' }
+          Expand-Archive ort.zip -DestinationPath ort
+          $ortDir = Get-ChildItem ort -Directory | Select-Object -First 1
+          Copy-Item "$($ortDir.FullName)/lib/onnxruntime.dll" -Destination .
+          New-Item -ItemType Directory -Force -Path model, licenses | Out-Null
+          Copy-Item "$($ortDir.FullName)/LICENSE" -Destination licenses/ONNXRuntime-LICENSE.txt
+          Copy-Item "$($ortDir.FullName)/ThirdPartyNotices.txt" -Destination licenses/ONNXRuntime-ThirdPartyNotices.txt
+          gh release download $env:MODEL_RELEASE -p laya-multilingual-int8.onnx -p tokenizer.bin -p Laya-APACHE-2.0.txt -D model
+          if ((Get-FileHash model/laya-multilingual-int8.onnx -Algorithm SHA256).Hash.ToLower() -ne $env:MODEL_SHA256) { throw 'Model checksum mismatch.' }
+          if ((Get-FileHash model/tokenizer.bin -Algorithm SHA256).Hash.ToLower() -ne $env:TOKENIZER_SHA256) { throw 'Tokenizer checksum mismatch.' }
+          Move-Item model/Laya-APACHE-2.0.txt licenses/
+      - name: Compile EmotionCat.exe, run core, golden ONNX and live classification tests
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath EmotionCat.exe -Force
+          ./build.ps1
+          ./tests/run-core-tests.ps1 -Golden tests/onnx-golden.json -Integration

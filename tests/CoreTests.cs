@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using EmotionCat;
@@ -65,8 +66,43 @@ internal static class CoreTests
         response.Remove("confidence");
         MustReject(() => LayaClient.ParseClassification(response, defaults.Emotions), "Missing confidence must be rejected.");
         Console.WriteLine("Core tests passed: " + checks);
+        int golden = Array.IndexOf(args, "--golden");
+        if (golden >= 0) RunGolden(args[golden + 1]);
         if (Array.IndexOf(args, "--integration") >= 0) RunIntegration().GetAwaiter().GetResult();
         return 0;
+    }
+
+    /// The native tokenizer, sequence builder and ONNX run must reproduce tools/onnx/make_golden.py.
+    private static void RunGolden(string path)
+    {
+        var cases = new JavaScriptSerializer { MaxJsonLength = Int32.MaxValue }.Deserialize<List<Dictionary<string, object>>>(System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8));
+        var times = new List<double>();
+        using (var engine = new LayaEngine(LayaEngine.ModelDirectory, 2))
+        {
+            foreach (var item in cases)
+            {
+                string text = (string)item["text"];
+                var emotions = new List<EmotionDefinition>();
+                foreach (Dictionary<string, object> e in (System.Collections.ArrayList)item["emotions"])
+                    emotions.Add(new EmotionDefinition((string)e["id"], (string)e["name"], (string)e["description"]));
+                LayaSequence sequence = engine.Build(text, emotions, (string)item["instructions"]);
+                var ids = ((System.Collections.ArrayList)item["input_ids"]).Cast<object>().Select(Convert.ToInt64).ToArray();
+                var markers = ((System.Collections.ArrayList)item["marker_pos"]).Cast<object>().Select(Convert.ToInt64).ToArray();
+                Check(ids.SequenceEqual(sequence.InputIds), "Token ids differ for: " + text.Substring(0, Math.Min(30, text.Length)) + " (expected " + ids.Length + ", got " + sequence.InputIds.Length + ")");
+                Check(markers.SequenceEqual(sequence.MarkerPositions), "Option markers differ for: " + text.Substring(0, Math.Min(30, text.Length)));
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                double[] probabilities = engine.Classify(sequence);
+                times.Add(watch.Elapsed.TotalMilliseconds);
+                var expected = ((System.Collections.ArrayList)item["probabilities"]).Cast<object>().Select(Convert.ToDouble).ToArray();
+                for (int i = 0; i < expected.Length; i++)
+                    Check(Math.Abs(expected[i] - probabilities[i]) <= 0.02, "Probability differs for: " + text.Substring(0, Math.Min(30, text.Length)));
+                var sorted = expected.OrderByDescending(v => v).ToArray();
+                int best = Array.IndexOf(probabilities, probabilities.Max());
+                Check(emotions[best].Id == (string)item["emotion"] || sorted[0] - sorted[1] < 0.05, "Emotion differs for: " + text.Substring(0, Math.Min(30, text.Length)));
+            }
+        }
+        times.Sort();
+        Console.WriteLine("Golden ONNX cases passed: " + cases.Count + ", median " + times[times.Count / 2].ToString("0.0") + " ms");
     }
 
     private static async Task RunIntegration()

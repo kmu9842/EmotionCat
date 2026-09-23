@@ -53,7 +53,7 @@ namespace EmotionCat
         string queuedText;
         long queuedContext;
         long activeContext = -1;
-        bool analyzing, restarting, installing, exiting;
+        bool analyzing, restarting, exiting;
         readonly ToolStripMenuItem pauseItem, clickItem;
 
         public AppController(bool previewOnly, bool showSettings, bool renderOnly = false, int captureProcessIdFilter = 0, string inputModeOverride = null)
@@ -95,7 +95,7 @@ namespace EmotionCat
             Client.HealthChanged += delegate { OnUI(delegate { RefreshStatus(); }); };
             idle.Tick += delegate { idle.Stop(); ShowEmotion("neutral"); };
             ApplySettings();
-            if (!previewOnly) { monitor.Start(); if (ModelInstalled) StartModel(); else InstallModel(); }
+            if (!previewOnly) { monitor.Start(); StartModel(); }
             else { InputStatus = "미리보기 모드 · 전역 입력 인식 꺼짐"; ModelStatus = "미리보기 모드 · 연결 버튼으로 Laya 테스트 가능"; }
             if (!renderOnly && (firstRun || showSettings || previewOnly)) OpenSettings();
         }
@@ -130,47 +130,6 @@ namespace EmotionCat
         }
         void RefreshStatus() { if (form != null && !form.IsDisposed) form.UpdateStatus(); }
         async void StartModel() { await RestartModel(); }
-        static bool ModelInstalled
-        {
-            get { return File.Exists(Path.Combine(AppSettings.BaseDirectory, "inference", "models", "multilingual", "emotioncat-model.json")); }
-        }
-        public async Task RestartModel()
-        {
-            if (restarting || installing || exiting) return;
-            restarting = true;
-            try { InvalidateRequests(); Client.Stop(); await Client.StartAsync(Settings); ModelStatus = Client.Status; RefreshStatus(); }
-            finally { restarting = false; }
-        }
-        public async Task InstallModel()
-        {
-            if (installing || restarting) return;
-            installing = true; InvalidateRequests(); Client.Stop();
-            string script = Path.Combine(AppSettings.BaseDirectory, "scripts", "setup-laya.ps1");
-            try
-            {
-                ModelStatus = "모델 설치 중… 최초 다운로드에는 몇 분 걸릴 수 있어요."; RefreshStatus();
-                var start = new ProcessStartInfo("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Model multilingual -Device " + (Settings.Device == "cpu" ? "cpu" : "auto"))
-                {
-                    WorkingDirectory = AppSettings.BaseDirectory, UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden,
-                    RedirectStandardOutput = true, RedirectStandardError = true,
-                    StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8
-                };
-                int code = await Task.Run(() =>
-                {
-                    using (var process = new Process { StartInfo = start })
-                    {
-                        process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e) { if (!String.IsNullOrWhiteSpace(e.Data)) OnUI(delegate { ModelStatus = "설치 중 · " + e.Data; RefreshStatus(); }); };
-                        process.ErrorDataReceived += delegate { };
-                        process.Start(); process.BeginOutputReadLine(); process.BeginErrorReadLine(); process.WaitForExit(); return process.ExitCode;
-                    }
-                });
-                if (code != 0) throw new InvalidOperationException("설치에 실패했어요. 인터넷 연결과 저장 공간을 확인한 뒤 설정에서 다시 설치해 주세요.");
-                ModelStatus = "설치 완료 · 연결 준비 중";
-            }
-            catch (Exception ex) { ModelStatus = ex.Message; RefreshStatus(); return; }
-            finally { installing = false; }
-            if (!exiting) await RestartModel();
-        }
         void InvalidateRequests() { requestVersion++; queuedText = null; }
         void QueueText(string text, long context)
         {
@@ -193,7 +152,7 @@ namespace EmotionCat
                     var choices = Settings.Emotions.Select(x => new EmotionDefinition { Id = x.Id, Name = x.Name, Description = x.Description, ImagePath = x.ImagePath }).ToList();
                     var result = await Client.ClassifyAsync(text, choices, Settings.ClassificationPrompt, "typing"); text = null;
                     if (result != null) { ResponseCount++; RecordDecision(result); }
-                    else { DecisionSummary = "분류 응답을 받지 못했어요. GPU 연결 상태를 확인해 주세요."; RefreshStatus(); }
+                    else { DecisionSummary = "분류 응답을 받지 못했어요. 설정에서 감정 모델을 다시 시작해 주세요."; RefreshStatus(); }
                     if (!exiting && result != null && version == requestVersion && context == monitor.ContextVersion && Settings.InputEnabled && Settings.Emotions.Any(x => x.Id == result.Emotion)) ShowEmotion(result.Emotion);
                 }
             }
