@@ -1,4 +1,4 @@
-param([switch]$Integration, [string]$Golden = '')
+﻿param([switch]$Integration, [string]$Golden = '')
 
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $PSScriptRoot
@@ -10,7 +10,7 @@ if (-not (Test-Path -LiteralPath $compiler)) {
     throw '.NET Framework 4.8 C# compiler was not found.'
 }
 
-# Integration uses the real local worker and must resolve inference/ from app root.
+# Golden/integration runs need onnxruntime.dll and model/ next to the test executable (app root).
 $testExecutable = Join-Path $projectDirectory ('EmotionCat.CoreTests.' + [Guid]::NewGuid().ToString('N') + '.exe')
 try {
     & $compiler /nologo /target:exe /platform:x64 "/out:$testExecutable" /r:System.Web.Extensions.dll /r:System.Drawing.dll `

@@ -10,7 +10,6 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
     private var tray: NSStatusItem!
     private var pauseItem: NSMenuItem!
     private var paused = false
-    private var installing = false
     private var emotionReset: DispatchWorkItem?
     private var previewSequence = 0
     private var revision = 0
@@ -21,7 +20,7 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
     init(resources: URL) {
         store = SettingsStore(resources: resources)
         sprites = SpriteCache(store: store)
-        worker = LayaWorker(resourceRoot: resources, dataDirectory: store.directory)
+        worker = LayaWorker(resourceRoot: resources)
         super.init()
     }
 
@@ -40,7 +39,6 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         preferences.onChanged = { [weak self] in self?.settingsChanged() }
         preferences.onModelChanged = { [weak self] in self?.restartModel() }
         preferences.onPermissions = { [weak self] in self?.keyboard.requestPermissions() }
-        preferences.onInstall = { [weak self] in self?.installModel() }
         preferences.onPreview = { [weak self] id in self?.showEmotion(id) }
         preferences.onTap = { [weak self] in self?.demoPaws() }
         preferences.onSnap = { [weak self] in self?.cat.snapToDock() }
@@ -55,12 +53,6 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         cat.orderFrontRegardless()
         if store.settings.captureText { worker.start(model: store.settings.model) }
         else { preferences.setStatus("감정 인식이 꺼져 있습니다. Laya 메모리를 사용하지 않습니다.") }
-        // An unconfigured install must expose the one-click model setup and permissions.
-        let modelMarker = store.directory.appendingPathComponent("inference/models/\(store.settings.model)/emotioncat-model.json")
-        if !FileManager.default.fileExists(atPath: modelMarker.path) {
-            preferences.open()
-            if store.settings.captureText { installModel() }
-        }
     }
 
     private func createTray() {
@@ -108,8 +100,8 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         if keyboard.captureText != store.settings.captureText {
             keyboard.captureText = store.settings.captureText
             invalidateInference()
-            if store.settings.captureText && !paused && !installing { worker.start(model: store.settings.model) }
-            else if !installing {
+            if store.settings.captureText && !paused { worker.start(model: store.settings.model) }
+            else {
                 worker.stop()
                 preferences.setStatus("감정 인식이 꺼져 있습니다. 발 동작은 계속 작동합니다.")
             }
@@ -119,25 +111,10 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         session += 1; revision += 1; pending = nil; inferenceBusy = false
     }
     private func restartModel() {
-        guard !installing else { return }
         invalidateInference()
         worker.stop()
         if !paused && store.settings.captureText { worker.start(model: store.settings.model) }
         else if !paused { preferences.setStatus("감정 인식이 꺼져 있습니다. Laya 메모리를 사용하지 않습니다.") }
-    }
-    private func installModel() {
-        guard !installing else { return }
-        installing = true
-        invalidateInference()
-        preferences.setInstalling(true)
-        worker.install(model: store.settings.model) { [weak self] success in
-            guard let self = self else { return }
-            self.installing = false
-            self.preferences.setInstalling(false)
-            if success && !self.paused && self.store.settings.captureText {
-                self.worker.start(model: self.store.settings.model)
-            }
-        }
     }
     private func enqueue(_ text: String, test: Bool) {
         guard !paused else {
@@ -145,7 +122,7 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
             return
         }
         if test && !worker.isReady {
-            preferences.setTestResult("Laya 연결 대기")
+            preferences.setTestResult("감정 모델을 준비하고 있습니다. 잠시 후 다시 시도해 주세요.")
             return
         }
         revision += 1
@@ -204,6 +181,15 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }
 
+// libmalloc's large-allocation cache otherwise keeps ~550 MB of freed model-loading buffers
+// resident, so turning emotion recognition off would not return memory to the system.
+// The setting is read only at process start, hence one re-exec of the same signed binary.
+if getenv("MallocLargeCache") == nil, let executable = Bundle.main.executablePath {
+    setenv("MallocLargeCache", "0", 1)
+    execv(executable, CommandLine.unsafeArgv)
+    // execv only returns on failure; continue with the default allocator.
+}
+
 let arguments = CommandLine.arguments
 let rootIndex = arguments.firstIndex(of: "--project-root")
 let resourceRoot: URL
@@ -213,6 +199,74 @@ if let index = rootIndex, index + 1 < arguments.count {
     resourceRoot = bundled
 } else {
     resourceRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+}
+
+/// `--verify-model <golden.json>`: exact input_ids/marker_pos for every case and >= 80% accuracy on labeled cases.
+/// Probabilities are reference-only: int8 kernels differ slightly per CPU (see tools/onnx/make_golden.py).
+func verifyModel(golden: URL, modelDirectory: URL) -> Int32 {
+    func fail(_ message: String) -> Int32 {
+        fputs("FAIL: \(message)\n", stderr)
+        return 1
+    }
+    guard let data = try? Data(contentsOf: golden),
+          let cases = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]], !cases.isEmpty else {
+        return fail("cannot read golden cases from \(golden.path)")
+    }
+    let loadStart = DispatchTime.now().uptimeNanoseconds
+    let engine: LayaEngine
+    do { engine = try LayaEngine(modelDirectory: modelDirectory) }
+    catch { return fail("engine load: \(error.localizedDescription)") }
+    let loadMs = Double(DispatchTime.now().uptimeNanoseconds - loadStart) / 1_000_000
+    var latencies: [Double] = []
+    var worstDelta: Float = 0
+    var labeled = 0, correct = 0
+    for (index, item) in cases.enumerated() {
+        guard let text = item["text"] as? String, let instructions = item["instructions"] as? String,
+              let emotions = item["emotions"] as? [[String: String]],
+              let expectedIDs = (item["input_ids"] as? [NSNumber])?.map({ $0.int64Value }),
+              let expectedMarkers = (item["marker_pos"] as? [NSNumber])?.map({ $0.int64Value }),
+              let expectedProbabilities = (item["probabilities"] as? [NSNumber])?.map({ $0.floatValue }) else {
+            return fail("case \(index): malformed golden entry")
+        }
+        let labels = emotions.map { LayaLabel(id: $0["id"] ?? "", name: $0["name"] ?? "", description: $0["description"] ?? "") }
+        let start = DispatchTime.now().uptimeNanoseconds
+        let sequence = engine.buildSequence(text: text, labels: labels, instructions: instructions)
+        let probabilities: [Float]
+        do { probabilities = try engine.probabilities(for: sequence) }
+        catch { return fail("case \(index): inference error \(error.localizedDescription)") }
+        latencies.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+        if sequence.inputIDs != expectedIDs {
+            let at = zip(sequence.inputIDs, expectedIDs).enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset
+                ?? min(sequence.inputIDs.count, expectedIDs.count)
+            return fail("case \(index): input_ids differ at \(at) (got \(sequence.inputIDs.count) ids, expected \(expectedIDs.count)); "
+                + "got \(Array(sequence.inputIDs.dropFirst(max(0, at - 3)).prefix(8))) expected \(Array(expectedIDs.dropFirst(max(0, at - 3)).prefix(8)))")
+        }
+        if sequence.markerPositions != expectedMarkers {
+            return fail("case \(index): marker_pos \(sequence.markerPositions) != \(expectedMarkers)")
+        }
+        guard probabilities.count == expectedProbabilities.count, probabilities.count == labels.count else {
+            return fail("case \(index): \(probabilities.count) probabilities, expected \(expectedProbabilities.count)")
+        }
+        for (got, want) in zip(probabilities, expectedProbabilities) { worstDelta = max(worstDelta, abs(got - want)) }
+        if let expected = item["expected"] as? String {
+            labeled += 1
+            let best = probabilities.indices.max(by: { probabilities[$0] < probabilities[$1] }) ?? 0
+            if labels[best].id == expected { correct += 1 }
+        }
+    }
+    if correct * 10 < labeled * 8 {
+        return fail("emotion accuracy \(correct)/\(labeled) is below 80%")
+    }
+    let sorted = latencies.sorted()
+    let median = sorted.count % 2 == 1 ? sorted[sorted.count / 2] : (sorted[sorted.count / 2 - 1] + sorted[sorted.count / 2]) / 2
+    #if arch(arm64)
+    let architecture = "arm64"
+    #else
+    let architecture = "x86_64"
+    #endif
+    print(String(format: "PASS: %d golden cases (%@) · input_ids/marker_pos exact · accuracy %d/%d · max |Δp| vs fp32 %.3f · median %.1f ms · model load %.0f ms",
+                 cases.count, architecture, correct, labeled, worstDelta, median, loadMs))
+    return 0
 }
 
 let application = NSApplication.shared
@@ -231,6 +285,14 @@ if arguments.contains("--verify-assets") {
     if failures.isEmpty { print("PASS: 8 emotions × 4 assigned alpha frames (512×384).") }
     else { fputs("Invalid/missing frames: \(failures.joined(separator: ", "))\n", stderr) }
     exit(failures.isEmpty ? 0 : 1)
+}
+if let index = arguments.firstIndex(of: "--verify-model") {
+    guard index + 1 < arguments.count else {
+        fputs("Usage: EmotionCat --verify-model <golden.json>\n", stderr)
+        exit(2)
+    }
+    exit(verifyModel(golden: URL(fileURLWithPath: arguments[index + 1]),
+                     modelDirectory: resourceRoot.appendingPathComponent("model", isDirectory: true)))
 }
 let appDelegate = EmotionCatApp(resources: resourceRoot)
 application.delegate = appDelegate

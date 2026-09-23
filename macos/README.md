@@ -1,18 +1,18 @@
 # EmotionCat · macOS
 
-macOS 12 이상용 네이티브 Swift/AppKit 앱입니다. Intel과 Apple Silicon을 모두 빌드합니다. 웹뷰, Electron, Qt, 게임 엔진은 사용하지 않습니다. 투명 고양이 창과 설정은 OS 기본 기능이며 Laya만 별도 로컬 Python 프로세스를 사용합니다. GitHub Actions의 macOS 러너에서 빌드·서명·스프라이트 검사를 실행합니다. **실기기 GUI 입력·IME·Dock 동작과 MPS 성능은 아직 검증하지 않았습니다.**
+macOS 13.4 이상용 네이티브 Swift/AppKit 앱입니다(내장 ONNX Runtime 1.23.2의 최소 지원 버전). Intel과 Apple Silicon을 모두 빌드합니다. 웹뷰, Electron, Qt, 게임 엔진, Python은 사용하지 않습니다. 감정 모델 **Laya multilingual 322M(int8 ONNX, 약 325MB)** 과 ONNX Runtime이 앱 안에 함께 들어 있어 앱 프로세스 안에서 CPU로 바로 추론합니다. 별도 다운로드, 모델 설치, Python이 필요 없습니다. GitHub Actions의 macOS 러너에서 빌드·서명·스프라이트 검사를 실행합니다. **실기기 GUI 입력·IME·Dock 동작은 아직 검증하지 않았습니다.**
 
 ## 빌드와 실행
 
-Mac에 Xcode Command Line Tools를 설치한 뒤 프로젝트 루트에서 실행합니다.
+Mac에 Xcode Command Line Tools를 설치한 뒤 프로젝트 루트에서 실행합니다. 모델 파일은 저장소에 없으므로 `laya-multilingual-int8.onnx`와 `tokenizer.bin`이 들어 있는 폴더를 `EMOTIONCAT_MODEL_DIR`로 지정합니다(`tools/onnx/`의 개발용 스크립트로 만든 결과물).
 
 ```sh
 xcode-select --install  # 이미 설치되어 있으면 생략
-bash macos/build.sh
+EMOTIONCAT_MODEL_DIR=/path/to/onnx bash macos/build.sh
 open macos/build/EmotionCat.app
 ```
 
-기본 빌드는 arm64와 x86_64 Universal 앱입니다. 한 아키텍처만 필요하면 `ARCHS=arm64 bash macos/build.sh` 또는 `ARCHS=x86_64 bash macos/build.sh`를 사용합니다. 빌드 스크립트는 Swift 컴파일, 앱 서명, 32개 투명 스프라이트 파일의 크기와 매핑 검사까지 수행합니다. 결과 앱을 `/Applications`에 복사한 **후** 입력 권한을 부여하면 앱 위치가 바뀌어 권한이 무효화되는 일을 줄일 수 있습니다.
+기본 빌드는 arm64와 x86_64 Universal 앱입니다. 한 아키텍처만 필요하면 `ARCHS=arm64` 또는 `ARCHS=x86_64`를 앞에 붙입니다. 빌드 스크립트는 공식 ONNX Runtime universal2 배포 파일을 내려받아 SHA-256을 확인한 뒤 `macos/build/cache/`에 보관하고, Swift 컴파일, `Contents/Frameworks`에 dylib 포함, 모델을 `Contents/Resources/model/`에 복사, dylib과 앱 서명, 32개 투명 스프라이트 검사, `tests/onnx-golden.json` 골든 케이스 검사(`--verify-model`: 토큰·마커 위치 완전 일치, 확률 오차 0.02 이내)까지 수행합니다. 완성된 앱은 약 400MB입니다. 결과 앱을 `/Applications`에 복사한 **후** 입력 권한을 부여하면 앱 위치가 바뀌어 권한이 무효화되는 일을 줄일 수 있습니다.
 
 `.github/workflows/macos.yml`은 macOS 러너에서 양쪽 아키텍처를 컴파일하고 앱 ZIP을 만듭니다. `ci-macos.yml`은 같은 워크플로의 복사본입니다. `main` 빌드의 ZIP과 SHA-256 파일은 [Releases](https://github.com/kmu9842/EmotionCat/releases)의 `macos-<커밋>` 초안에 저장되고, Actions 실행 요약에 다운로드 링크가 표시됩니다. PR은 빌드·패키징만 검사합니다. Actions artifact 저장공간을 사용하지 않으며, 재실행은 같은 커밋의 초안 파일을 갱신합니다. 게시된 릴리스 파일은 덮어쓰지 않습니다. CI는 GUI 입력, Dock 정렬, IME 동작을 검증하지 않습니다.
 
@@ -20,11 +20,11 @@ open macos/build/EmotionCat.app
 
 1. 메뉴 막대의 발바닥 아이콘 → **EmotionCat 설정**을 엽니다.
 2. 첫 실행 때 뜨는 권한 요청에서 EmotionCat의 **입력 모니터링**과 **손쉬운 사용**을 허용합니다. 허용하면 재실행 없이 1초 안에 입력을 인식합니다. 창을 닫았다면 **입력 권한 설정**을 누릅니다.
-3. 감정 모델은 첫 실행 때 자동으로 설치됩니다. Python을 따로 설치할 필요가 없습니다. 앱이 전용 Python 3.11(체크섬 검증)을 `~/Library/Application Support/EmotionCat/inference/python`에 내려받아 사용합니다. 실패하면 **모델 설치 / 복구**를 누릅니다.
-4. **Laya multilingual 322M 하나만** 사용합니다. Apple Silicon에서는 사용 가능한 경우 MPS를 자동 선택하고, 그 외에는 CPU를 사용합니다. 실제 Mac 실행은 아직 검증하지 않았습니다.
+3. 감정 모델은 앱에 포함되어 있어 설치 과정이 없습니다. 감정 인식이 켜져 있으면 실행 직후 백그라운드에서 모델을 불러오며(“감정 모델 불러오는 중…” → “감정 인식 준비 완료”), 네트워크를 사용하지 않습니다.
+4. **Laya multilingual 322M(int8) 하나만** 사용합니다. Apple Silicon과 Intel 모두 CPU 2스레드로 실행합니다.
 5. 문장을 입력하고 **Laya 감정 테스트**를 누르면 선택된 감정과 실제 바뀐 고양이를 확인할 수 있습니다.
 
-모델 설치만 네트워크가 필요합니다. 실행 중 입력 텍스트는 임의 토큰으로 보호되는 `127.0.0.1` 로컬 워커에만 전달합니다. 입력 내용을 파일에 기록하지 않습니다. Python 환경과 가중치, 설정과 가져온 이미지는 `~/Library/Application Support/EmotionCat/`에 보관합니다. 서명된 `.app` 내부는 수정하지 않습니다.
+앱은 네트워크를 사용하지 않습니다. 입력 텍스트는 앱 프로세스 메모리 안에서만 추론에 쓰이며 다른 프로세스나 로컬 서버로 보내지 않고, 파일에 기록하지 않습니다. 설정과 가져온 이미지는 `~/Library/Application Support/EmotionCat/`에 보관합니다. 서명된 `.app` 내부는 수정하지 않습니다. 모델과 ONNX Runtime 라이선스 문서는 `Contents/Resources/licenses/`에 있습니다.
 
 ## 동작과 이미지 매핑
 
@@ -32,12 +32,12 @@ open macos/build/EmotionCat.app
 - 평온, 화남, 하트, 신남, 슬픔, 놀람, 졸림, 혼란의 **8개 감정 × 4개 동작 = 32개 이미지**가 처음부터 연결되어 있습니다.
 - 설정에서 감정을 고르고 이름·설명을 수정하거나, 동작을 고른 뒤 **이미지 선택**으로 기본/왼발/오른발/양발 이미지를 각각 바꿀 수 있습니다. 사용자 감정은 최대 16개입니다. 이미지가 없는 동작은 해당 감정의 기본 이미지로 돌아갑니다.
 - 고양이는 드래그로 이동합니다. **Dock 위에 맞추기**는 이미지 아래 투명 여백이 아닌 실제 책상선(y=310/384)을 `NSScreen.visibleFrame`의 아래 경계에 맞춥니다. Dock이 옆쪽에 있으면 사용 가능한 화면 아래 경계에 맞춥니다. Dock 자동 숨김 시에도 사용 가능한 화면 경계가 기준입니다.
-- 우클릭 또는 더블클릭으로 설정을 열고, 메뉴 막대에서 일시 정지/종료할 수 있습니다. 일시 정지하면 입력과 Laya 워커를 멈춥니다. 감정 인식을 끄면 양발 동작은 남고 Laya 메모리는 해제됩니다.
+- 우클릭 또는 더블클릭으로 설정을 열고, 메뉴 막대에서 일시 정지/종료할 수 있습니다. 일시 정지하면 입력 감지와 감정 인식을 멈추고 모델 메모리를 해제합니다. 감정 인식을 끄면 양발 동작은 남고 모델(추론 중 약 0.3~0.45GB)은 메모리에서 해제됩니다.
 
 ## 입력 범위와 현재 검증 한계
 
 입력 감지는 수동 전역 이벤트 탭입니다. 키 이벤트에서 얻은 문자를 최대 240자까지 메모리에 기록하며 편집 컨트롤의 텍스트를 읽지 않습니다. 문자 입력 시 0.5초 뒤 분석을 한 번 예약하고 그동안 기록된 문자열을 전달합니다. 새 문자 없이 반복 추론하지 않으며 Enter나 클릭은 이미 예약한 문장을 취소하지 않습니다. 비밀번호 필드와 비밀번호 관리자는 제외합니다. 클립보드는 읽지 않아 붙여넣기 본문은 포함되지 않습니다.
 
-표준 한글 두벌식 입력 소스에서는 물리 키를 한글 음절로 조합합니다. 그 외 입력기는 이벤트의 유니코드 문자를 사용합니다. 손쉬운 사용 API는 비밀번호 필드 확인에만 사용합니다. 실제 Mac IME 조합과 모델 추론은 아직 실행 검증하지 않았습니다.
+표준 한글 두벌식 입력 소스에서는 물리 키를 한글 음절로 조합합니다. 그 외 입력기는 이벤트의 유니코드 문자를 사용합니다. 손쉬운 사용 API는 비밀번호 필드 확인에만 사용합니다. 실제 Mac IME 조합은 아직 실행 검증하지 않았습니다. 모델 추론은 빌드 시 골든 케이스로 검사합니다.
 
-Mac에서 배포 전 확인할 항목: 양쪽 아키텍처 빌드, 입력 권한 허용/거절, TextEdit·브라우저의 한글 조합 및 Enter, 비밀번호 입력 제외, 연속 입력의 두 발, 8개 감정과 사용자 4프레임 매핑, 모델 설치/취소, 듀얼 모니터와 Dock 위치 변경. 현재 Windows 환경에서 이 Mac GUI 검증을 완료했다고 주장하지 않습니다.
+Mac에서 배포 전 확인할 항목: 양쪽 아키텍처 빌드, 입력 권한 허용/거절, TextEdit·브라우저의 한글 조합 및 Enter, 비밀번호 입력 제외, 연속 입력의 두 발, 8개 감정과 사용자 4프레임 매핑, 감정 인식 켜기/끄기 시 메모리 해제, 듀얼 모니터와 Dock 위치 변경. 현재 Windows 환경에서 이 Mac GUI 검증을 완료했다고 주장하지 않습니다.

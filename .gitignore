@@ -1,8 +1,3 @@
-inference/.venv/
-inference/models/
-inference/__pycache__/
-inference/status.json
-inference/status.json.tmp
 EmotionCat.*Tests*.exe
 macos/build/
 macos/output/
@@ -19,8 +14,8 @@ output/
 .env
 .env.*
 !.env.example
-runtime/
 model/
+EmotionCat.exe
 licenses/
 onnxruntime.dll
 ort/
