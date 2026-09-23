@@ -47,7 +47,13 @@ namespace EmotionCat
                 }
                 added = list.OrderByDescending(a => a.Key.Length).ToArray();  // stable: ties keep file order
             }
-            for (int b = 0; b < 256; b++) byteTokens[b] = vocab["<0x" + b.ToString("X2") + ">"];
+            // Characters with their own token (e.g. tab) have no byte-fallback token; HF maps a missing one to <unk>.
+            int unknown = vocab["<unk>"];
+            for (int b = 0; b < 256; b++)
+            {
+                int id;
+                byteTokens[b] = vocab.TryGetValue("<0x" + b.ToString("X2") + ">", out id) ? id : unknown;
+            }
         }
 
         public List<int> Encode(string text)
