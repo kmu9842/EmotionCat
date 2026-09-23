@@ -78,7 +78,6 @@ jobs:
       - name: Compile EmotionCat.exe, run core, golden ONNX and live classification tests
         shell: pwsh
         run: |
-          Remove-Item -LiteralPath EmotionCat.exe -Force
           ./build.ps1
           ./tests/run-core-tests.ps1 -Golden tests/onnx-golden.json -Integration
       - name: Pack portable ZIP
