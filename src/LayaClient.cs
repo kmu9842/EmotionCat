@@ -4,12 +4,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Net.Sockets;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Web.Script.Serialization;
 
 namespace EmotionCat
 {
@@ -24,17 +20,17 @@ namespace EmotionCat
         public string Model { get; set; }
     }
 
+    /// Runs Laya inside this process with ONNX Runtime. No Python, no local server, no network.
     public sealed class LayaClient : IDisposable
     {
-        private const int Port = 47821;
         private readonly object gate = new object();
-        private Process process;
+        private LayaEngine engine;
         private CancellationTokenSource session;
-        private string token;
         private string status = "Laya 준비 전";
         private volatile bool ready;
         private int classifying;
         private bool disposed;
+        private int requests, successes;
 
         public event Action<string> StatusChanged;
         public event Action HealthChanged;
@@ -47,115 +43,46 @@ namespace EmotionCat
         {
             if (settings == null) throw new ArgumentNullException("settings");
             CancellationTokenSource current;
-            string currentToken;
             lock (gate)
             {
                 if (disposed) throw new ObjectDisposedException("LayaClient");
                 if (session != null) return;
                 session = new CancellationTokenSource();
-                token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
                 current = session;
-                currentToken = token;
             }
+            SetStatus("감정 모델 불러오는 중…", false, current);
             try
             {
-                if (await Task.Run(() => IsPortOccupied()))
-                    throw new InvalidOperationException("Laya 포트 47821이 사용 중입니다. 다른 EmotionCat을 종료하세요.");
-                current.Token.ThrowIfCancellationRequested();
-                string server = Path.Combine(AppSettings.BaseDirectory, "inference", "server.py");
-                if (!File.Exists(server)) throw new FileNotFoundException("inference/server.py를 찾을 수 없습니다.");
-                string python = FindPython(settings.PythonPath);
-                var start = new ProcessStartInfo
+                if (!LayaEngine.IsInstalled) throw new FileNotFoundException("감정 모델 파일이 없습니다. EmotionCat을 다시 설치해 주세요.");
+                int threads = Math.Max(1, Math.Min(4, Environment.ProcessorCount / 2));
+                var emotions = settings.Emotions.ToList();
+                string prompt = settings.ClassificationPrompt;
+                LayaEngine loaded = await Task.Run(() =>
                 {
-                    FileName = python,
-                    Arguments = "-u " + Quote(server) + " --host 127.0.0.1 --port " + Port.ToString(CultureInfo.InvariantCulture)
-                        + " --token " + currentToken + " --model multilingual --threads 2 --device " + (new[] { "cuda", "cpu", "mps" }.Contains(settings.Device) ? settings.Device : "auto"),
-                    WorkingDirectory = AppSettings.BaseDirectory,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WindowStyle = ProcessWindowStyle.Hidden,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-                start.EnvironmentVariables["PYTHONUTF8"] = "1";
-                start.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
-                start.EnvironmentVariables["TOKENIZERS_PARALLELISM"] = "false";
-                var child = new Process { StartInfo = start, EnableRaisingEvents = true };
-                // Drain output without retaining typed text or model prompts in application logs.
-                child.OutputDataReceived += delegate { };
-                child.ErrorDataReceived += delegate { };
+                    var created = new LayaEngine(LayaEngine.ModelDirectory, threads);
+                    try { created.Classify(created.Build("안녕하세요", emotions, prompt)); }  // warm up kernels without user text
+                    catch { created.Dispose(); throw; }
+                    return created;
+                });
                 lock (gate)
                 {
-                    if (session != current || current.IsCancellationRequested) { child.Dispose(); return; }
-                    process = child;
-                    child.Start();
-                    child.BeginOutputReadLine();
-                    child.BeginErrorReadLine();
+                    if (session != current || current.IsCancellationRequested) { loaded.Dispose(); return; }
+                    engine = loaded;
                 }
-                SetStatus("Laya 모델 불러오는 중…", false, current);
-                // Loading a model may take time. It never blocks the settings or overlay window.
-                Task ignored = MonitorAsync(current, currentToken, child);
+                DeviceDescription = "CPU · 내 PC에서 실행";
+                Diagnostics = "요청 0 · 완료 0";
+                SetStatus("연결됨 · " + DeviceDescription, true, current);
+                var handler = HealthChanged; if (handler != null) handler();
             }
-            catch (OperationCanceledException) { }
+            catch (DllNotFoundException)
+            {
+                SetStatus("onnxruntime.dll을 찾을 수 없습니다. EmotionCat을 다시 설치해 주세요.", false, current);
+                ReleaseSession(current);
+            }
             catch (Exception ex)
             {
-                string message = ex is System.ComponentModel.Win32Exception
-                    ? "감정 모델이 설치되지 않았습니다. 설정에서 모델 설치를 눌러 주세요."
-                    : ShortError(ex.Message);
-                SetStatus(message, false, current);
-                ReleaseFailedSession(current);
-            }
-        }
-
-        private async Task MonitorAsync(CancellationTokenSource current, string currentToken, Process child)
-        {
-            int failedHealthChecks = 0;
-            try
-            {
-                while (!current.IsCancellationRequested)
-                {
-                    if (child.HasExited)
-                    {
-                        SetStatus("Laya가 종료되었습니다. 모델 설치 상태를 확인하세요.", false, current);
-                        ReleaseFailedSession(current);
-                        return;
-                    }
-                    try
-                    {
-                        Dictionary<string, object> health = await RequestAsync("health", null, currentToken, current.Token, 3000);
-                        object stateValue;
-                        string state = health.TryGetValue("status", out stateValue) ? Convert.ToString(stateValue, CultureInfo.InvariantCulture) : "";
-                        failedHealthChecks = 0;
-                        UpdateHealth(health);
-                        if (state == "ready") SetStatus("연결됨 · " + DeviceDescription, true, current);
-                        else if (state == "loading") SetStatus("Laya 모델 불러오는 중…", false, current);
-                        else if (state == "error")
-                        {
-                            object error;
-                            string details = health.TryGetValue("error", out error) ? ShortError(Convert.ToString(error, CultureInfo.InvariantCulture)) : "모델을 불러오지 못했습니다.";
-                            SetStatus("Laya 오류: " + details, false, current);
-                            ReleaseFailedSession(current);
-                            return;
-                        }
-                        else SetStatus("Laya 응답 형식을 확인하세요.", false, current);
-                    }
-                    catch (OperationCanceledException) { if (current.IsCancellationRequested) return; }
-                    catch (Exception ex)
-                    {
-                        if (!(ex is WebException || ex is IOException || ex is InvalidOperationException || ex is ArgumentException)) throw;
-                        var webError = ex as WebException;
-                        if (webError != null && webError.Response != null) webError.Response.Close();
-                        failedHealthChecks++;
-                        if (failedHealthChecks > 8) SetStatus("Laya 응답 대기 중… 모델 설치 상태를 확인하세요.", false, current);
-                    }
-                    await Task.Delay(ready ? 5000 : 1000, current.Token);
-                }
-            }
-            catch (OperationCanceledException) { }
-            catch (ObjectDisposedException) { }
-            catch (Exception)
-            {
-                SetStatus("Laya 연결이 끊겼습니다. 설정에서 다시 연결하세요.", false, current);
+                SetStatus("감정 모델을 불러오지 못했습니다: " + ShortError(ex.Message), false, current);
+                ReleaseSession(current);
             }
         }
 
@@ -163,54 +90,46 @@ namespace EmotionCat
         {
             return ClassifyAsync(text, emotions, AppSettings.DefaultPrompt, "manual");
         }
+
         public async Task<ClassificationResult> ClassifyAsync(string text, List<EmotionDefinition> emotions, string instructions, string source = "manual")
         {
             if (!ready || String.IsNullOrWhiteSpace(text)) return null;
             if (emotions == null || emotions.Count < 2 || emotions.Count > 16)
                 throw new ArgumentException("감정은 2~16개를 설정하세요.", "emotions");
+            if (String.IsNullOrWhiteSpace(instructions)) instructions = AppSettings.DefaultPrompt;
             if (Interlocked.CompareExchange(ref classifying, 1, 0) != 0) return null;
-            CancellationTokenSource current;
-            string currentToken;
-            lock (gate) { current = session; currentToken = token; }
+            LayaEngine current;
+            CancellationTokenSource currentSession;
+            lock (gate) { current = engine; currentSession = session; }
             try
             {
-                if (current == null || current.IsCancellationRequested) return null;
-                string clippedText = text.Length > 1000 ? text.Substring(text.Length - 1000) : text;
-                var choices = emotions.Select(e => new { id = e.Id, name = e.Name, description = e.Description }).ToArray();
-                var serializer = new JavaScriptSerializer();
-                string body = serializer.Serialize(new { text = clippedText, emotions = choices, instructions = instructions, source = source });
-                var response = await RequestAsync("classify", body, currentToken, current.Token, 20000);
-                ClassificationResult result = ParseClassification(response, emotions);
-                if (current.IsCancellationRequested) return null;
-                return result;
-            }
-            catch (OperationCanceledException) { return null; }
-            catch (WebException ex)
-            {
-                if (current == null || current.IsCancellationRequested) return null;
-                var response = ex.Response as HttpWebResponse;
-                if (response != null)
+                if (current == null || currentSession == null || currentSession.IsCancellationRequested) return null;
+                string clipped = text.Length > 1000 ? text.Substring(text.Length - 1000) : text;
+                var choices = emotions.ToList();
+                string prompt = instructions.Trim();
+                Interlocked.Increment(ref requests);
+                var watch = Stopwatch.StartNew();
+                double[] probabilities = await Task.Run(() => current.Classify(current.Build(clipped, choices, prompt)));
+                watch.Stop();
+                if (currentSession.IsCancellationRequested) return null;
+                int best = 0;
+                for (int i = 1; i < probabilities.Length; i++) if (probabilities[i] > probabilities[best]) best = i;
+                var byId = new Dictionary<string, double>();
+                for (int i = 0; i < probabilities.Length && i < choices.Count; i++) byId[choices[i].Id] = Math.Round(probabilities[i], 4);
+                Interlocked.Increment(ref successes);
+                double elapsed = Math.Round(watch.Elapsed.TotalMilliseconds, 1);
+                Diagnostics = "요청 " + requests + " · 완료 " + successes + " · 최근 " + clipped.Length + "자 / " + elapsed.ToString(CultureInfo.InvariantCulture) + " ms";
+                var handler = HealthChanged; if (handler != null) handler();
+                return new ClassificationResult
                 {
-                    HttpStatusCode code = response.StatusCode;
-                    response.Close();
-                    if (code == HttpStatusCode.ServiceUnavailable) return null;
-                }
-                SetStatus("Laya 분석 응답을 받지 못했습니다. 잠시 후 다시 시도합니다.", false, current);
-                return null;
+                    Emotion = choices[best].Id, RawEmotion = choices[best].Id, Confidence = Math.Round(LayaEngine.Confidence(probabilities), 4),
+                    ElapsedMs = elapsed, Probabilities = byId, Device = "cpu", Model = "multilingual"
+                };
             }
-            catch (IOException)
+            catch (ObjectDisposedException) { return null; }
+            catch (Exception)
             {
-                SetStatus("Laya 분석 연결이 끊겼습니다.", false, current);
-                return null;
-            }
-            catch (InvalidOperationException)
-            {
-                SetStatus("Laya 분석 응답을 확인하지 못했습니다.", false, current);
-                return null;
-            }
-            catch (ArgumentException)
-            {
-                SetStatus("Laya 분석 응답이 올바르지 않습니다.", false, current);
+                if (currentSession != null && !currentSession.IsCancellationRequested) SetStatus("감정 분석에 실패했습니다. 다음 입력에서 다시 시도합니다.", ready, currentSession);
                 return null;
             }
             finally { Interlocked.Exchange(ref classifying, 0); }
@@ -246,60 +165,6 @@ namespace EmotionCat
             }
             return new ClassificationResult { Emotion = id, RawEmotion = id, Confidence = confidence, ElapsedMs = elapsed, Probabilities = probabilities, Device = response.TryGetValue("device", out value) ? Convert.ToString(value) : "", Model = response.TryGetValue("model", out value) ? Convert.ToString(value) : "" };
         }
-        void UpdateHealth(Dictionary<string, object> health)
-        {
-            Func<string, string> read = key => { object value; return health.TryGetValue(key, out value) ? Convert.ToString(value, CultureInfo.InvariantCulture) : ""; };
-            string device = read("device");
-            DeviceDescription = device.StartsWith("cuda") ? "GPU · " + read("device_name") : device == "cpu" ? "CPU" : device;
-            Diagnostics = "서버 접수 " + read("requests") + " · 완료 " + read("successes") + " · 최근 " + read("last_input_chars") + "자 / " + read("last_elapsed_ms") + " ms";
-            var handler = HealthChanged; if (handler != null) handler();
-        }
-
-        private static async Task<Dictionary<string, object>> RequestAsync(string endpoint, string body, string authToken, CancellationToken cancellation, int timeout)
-        {
-            var request = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + Port.ToString(CultureInfo.InvariantCulture) + "/" + endpoint);
-            request.Proxy = null;
-            // Avoid the legacy 100-Continue wait and Nagle delay on tiny loopback POSTs.
-            request.ServicePoint.Expect100Continue = false;
-            request.ServicePoint.UseNagleAlgorithm = false;
-            request.AllowAutoRedirect = false;
-            request.Method = body == null ? "GET" : "POST";
-            request.Headers["X-EmotionCat-Token"] = authToken;
-            request.Timeout = timeout;
-            request.ReadWriteTimeout = timeout;
-            request.KeepAlive = false;
-            using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation))
-            {
-                deadline.CancelAfter(timeout);
-                using (deadline.Token.Register(request.Abort))
-                {
-                    if (body != null)
-                    {
-                        byte[] bytes = Encoding.UTF8.GetBytes(body);
-                        if (bytes.Length > 32768) throw new ArgumentException("Classification payload is too large.");
-                        request.ContentType = "application/json; charset=utf-8";
-                        request.ContentLength = bytes.Length;
-                        using (var stream = await request.GetRequestStreamAsync()) await stream.WriteAsync(bytes, 0, bytes.Length, deadline.Token);
-                    }
-                    using (var response = (HttpWebResponse)await request.GetResponseAsync())
-                    using (var stream = response.GetResponseStream())
-                    using (var reader = new StreamReader(stream, Encoding.UTF8))
-                    {
-                        char[] buffer = new char[2048];
-                        var json = new StringBuilder();
-                        int read;
-                        while ((read = await reader.ReadAsync(buffer, 0, buffer.Length)) > 0)
-                        {
-                            json.Append(buffer, 0, read);
-                            if (json.Length > 65536) throw new InvalidOperationException("Response exceeded size limit.");
-                        }
-                        var parsed = new JavaScriptSerializer { MaxJsonLength = 65536 }.Deserialize<Dictionary<string, object>>(json.ToString());
-                        if (parsed == null) throw new InvalidOperationException("Response was empty.");
-                        return parsed;
-                    }
-                }
-            }
-        }
 
         private void SetStatus(string value, bool isReady, CancellationTokenSource current)
         {
@@ -315,32 +180,26 @@ namespace EmotionCat
             if (handler != null) handler(value);
         }
 
-        private void ReleaseFailedSession(CancellationTokenSource current)
+        private void ReleaseSession(CancellationTokenSource current)
         {
+            LayaEngine released;
             lock (gate)
             {
-                if (session != current) return;
-                session.Cancel();
+                if (current != null && session != current) return;
+                if (session != null) session.Cancel();
                 session = null;
-                token = null;
                 ready = false;
-                if (process != null)
-                {
-                    try { if (!process.HasExited) process.Kill(); }
-                    catch (InvalidOperationException) { }
-                    catch (System.ComponentModel.Win32Exception) { }
-                    process.Dispose();
-                    process = null;
-                }
+                released = engine;
+                engine = null;
             }
+            // Waits for an in-flight inference; the model memory is freed immediately afterwards.
+            if (released != null) released.Dispose();
         }
 
         public void Stop()
         {
-            CancellationTokenSource current;
-            lock (gate) current = session;
-            if (current != null) ReleaseFailedSession(current);
-            lock (gate) { status = "Laya 연결 해제됨"; ready = false; }
+            ReleaseSession(null);
+            lock (gate) status = "Laya 연결 해제됨";
         }
 
         public void Dispose()
@@ -349,45 +208,9 @@ namespace EmotionCat
             Stop();
         }
 
-        private static string FindPython(string configured)
-        {
-            string[] bundled =
-            {
-                Path.Combine(AppSettings.BaseDirectory, "inference", ".venv", "Scripts", "python.exe"),
-                Path.Combine(AppSettings.BaseDirectory, "runtime", "python", "python.exe"),
-                Path.Combine(AppSettings.BaseDirectory, "runtime", "python.exe")
-            };
-            foreach (string path in bundled) if (File.Exists(path)) return path;
-            if (!String.IsNullOrWhiteSpace(configured)) return configured.Trim().Trim('"');
-            return "python";
-        }
-
-        private static bool IsPortOccupied()
-        {
-            using (var client = new TcpClient())
-            {
-                try
-                {
-                    IAsyncResult connection = client.BeginConnect(IPAddress.Loopback, Port, null, null);
-                    using (connection.AsyncWaitHandle)
-                    {
-                        if (!connection.AsyncWaitHandle.WaitOne(500)) return false;
-                        client.EndConnect(connection);
-                        return true;
-                    }
-                }
-                catch (SocketException) { return false; }
-            }
-        }
-
-        private static string Quote(string argument)
-        {
-            return "\"" + argument.Replace("\"", "\\\"") + "\"";
-        }
-
         private static string ShortError(string error)
         {
-            if (String.IsNullOrWhiteSpace(error)) return "모델 설치 상태를 확인하세요.";
+            if (String.IsNullOrWhiteSpace(error)) return "EmotionCat을 다시 설치해 주세요.";
             error = error.Replace('\r', ' ').Replace('\n', ' ').Trim();
             return error.Length > 240 ? error.Substring(0, 240) + "…" : error;
         }

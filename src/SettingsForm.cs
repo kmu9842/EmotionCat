@@ -88,8 +88,7 @@ namespace EmotionCat
             inputMode.SelectedIndexChanged += delegate { settings.InputMode = inputMode.SelectedIndex == 1 ? "korean" : inputMode.SelectedIndex == 2 ? "latin" : "auto"; app.ApplySettings(); };
             connection.Controls.Add(inputMode);
             modelStatus = LabelAt(connection, "모델 연결 대기", 20, 131, 370, 43, 9, false); modelStatus.ForeColor = Muted;
-            ButtonAt(connection, "GPU 연결 / 다시 시작", 20, 181, 220, 37, async delegate { settings.Model = "multilingual"; app.SaveSettings(); await app.RestartModel(); }, true);
-            ButtonAt(connection, "설치 / 준비", 250, 181, 140, 37, async delegate { settings.Model = "multilingual"; app.SaveSettings(); await app.InstallModel(); }, false);
+            ButtonAt(connection, "감정 모델 다시 시작", 20, 181, 220, 37, async delegate { settings.Model = "multilingual"; app.SaveSettings(); await app.RestartModel(); }, true);
             enabled = new CheckBox { Text = "다른 앱에서 친 글로 감정 바꾸기", Location = new Point(20, 246), Size = new Size(371, 27), Checked = settings.InputEnabled };
             enabled.CheckedChanged += delegate { if (!loading) { settings.InputEnabled = enabled.Checked; app.ApplySettings(); } }; connection.Controls.Add(enabled);
             inputStatus = LabelAt(connection, "입력 대기", 20, 278, 371, 37, 8.5f, false); inputStatus.ForeColor = Muted;
