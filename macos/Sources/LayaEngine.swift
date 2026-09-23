@@ -89,7 +89,7 @@ final class LayaEngine {
         throw LayaEngineError.runtime(message)
     }
 
-    // MARK: Sequence (mirror of tools/onnx/make_golden.py)
+    // MARK: Model input sequence
 
     /// Laya choice-question sequence: head, one [MASK] option per label, then the typed text.
     func buildSequence(text: String, labels emotions: [LayaLabel], instructions: String) -> LayaSequence {

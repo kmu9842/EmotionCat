@@ -1,6 +1,6 @@
 # EmotionCat · macOS
 
-macOS 13.4 이상용 네이티브 Swift/AppKit 앱입니다(내장 ONNX Runtime 1.23.2의 최소 지원 버전). Intel과 Apple Silicon을 모두 빌드합니다. 웹뷰, Electron, Qt, 게임 엔진, Python은 사용하지 않습니다. 감정 모델 **Laya multilingual 322M(int8 ONNX, 약 325MB)** 과 ONNX Runtime이 앱 안에 함께 들어 있어 앱 프로세스 안에서 CPU로 바로 추론합니다. 별도 다운로드, 모델 설치, Python이 필요 없습니다. GitHub Actions의 macOS 러너에서 빌드·서명·스프라이트 검사를 실행합니다. **실기기 GUI 입력·IME·Dock 동작은 아직 검증하지 않았습니다.**
+macOS 13.4 이상용 네이티브 Swift/AppKit 앱입니다(내장 ONNX Runtime 1.23.2의 최소 지원 버전). Intel과 Apple Silicon을 모두 빌드합니다. 웹뷰, Electron, Qt, 게임 엔진, Python은 사용하지 않습니다. 감정 모델 **Laya multilingual 322M(int8 ONNX, 약 325MB)** 과 ONNX Runtime이 앱 안에 함께 들어 있어 앱 프로세스 안에서 CPU로 바로 추론합니다. 별도 다운로드, 모델 설치, Python이 필요 없습니다. GitHub Actions의 macOS 러너에서 빌드·서명 검사를 실행합니다. **실기기 GUI 입력·IME·Dock 동작은 아직 검증하지 않았습니다.**
 
 ## 빌드와 실행
 
@@ -12,7 +12,7 @@ EMOTIONCAT_MODEL_DIR=/path/to/onnx bash macos/build.sh
 open macos/build/EmotionCat.app
 ```
 
-기본 빌드는 arm64와 x86_64 Universal 앱입니다. 한 아키텍처만 필요하면 `ARCHS=arm64` 또는 `ARCHS=x86_64`를 앞에 붙입니다. 빌드 스크립트는 공식 ONNX Runtime universal2 배포 파일을 내려받아 SHA-256을 확인한 뒤 `macos/build/cache/`에 보관하고, Swift 컴파일, `Contents/Frameworks`에 dylib 포함, 모델을 `Contents/Resources/model/`에 복사, dylib과 앱 서명, 32개 투명 스프라이트 검사, `tests/onnx-golden.json` 골든 케이스 검사(`--verify-model`: 토큰·마커 위치 완전 일치, 확률 오차 0.02 이내)까지 수행합니다. 완성된 앱은 약 400MB입니다. 결과 앱을 `/Applications`에 복사한 **후** 입력 권한을 부여하면 앱 위치가 바뀌어 권한이 무효화되는 일을 줄일 수 있습니다.
+기본 빌드는 arm64와 x86_64 Universal 앱입니다. 한 아키텍처만 필요하면 `ARCHS=arm64` 또는 `ARCHS=x86_64`를 앞에 붙입니다. 빌드 스크립트는 공식 ONNX Runtime universal2 배포 파일을 내려받아 SHA-256을 확인한 뒤 `macos/build/cache/`에 보관하고, Swift 컴파일, `Contents/Frameworks`에 dylib 포함, 모델을 `Contents/Resources/model/`에 복사, dylib과 앱 서명까지 수행합니다. 완성된 앱은 약 400MB입니다. 결과 앱을 `/Applications`에 복사한 **후** 입력 권한을 부여하면 앱 위치가 바뀌어 권한이 무효화되는 일을 줄일 수 있습니다.
 
 `.github/workflows/macos.yml`은 macOS 러너에서 양쪽 아키텍처를 컴파일하고 앱 ZIP을 만듭니다. `ci-macos.yml`은 같은 워크플로의 복사본입니다. `main` 빌드의 ZIP과 SHA-256 파일은 [Releases](https://github.com/kmu9842/EmotionCat/releases)의 `macos-<커밋>` 초안에 저장되고, Actions 실행 요약에 다운로드 링크가 표시됩니다. PR은 빌드·패키징만 검사합니다. Actions artifact 저장공간을 사용하지 않으며, 재실행은 같은 커밋의 초안 파일을 갱신합니다. 게시된 릴리스 파일은 덮어쓰지 않습니다. CI는 GUI 입력, Dock 정렬, IME 동작을 검증하지 않습니다.
 
@@ -38,6 +38,6 @@ open macos/build/EmotionCat.app
 
 입력 감지는 수동 전역 이벤트 탭입니다. 키 이벤트에서 얻은 문자를 최대 240자까지 메모리에 기록하며 편집 컨트롤의 텍스트를 읽지 않습니다. 문자 입력 시 0.5초 뒤 분석을 한 번 예약하고 그동안 기록된 문자열을 전달합니다. 새 문자 없이 반복 추론하지 않으며 Enter나 클릭은 이미 예약한 문장을 취소하지 않습니다. 비밀번호 필드와 비밀번호 관리자는 제외합니다. 클립보드는 읽지 않아 붙여넣기 본문은 포함되지 않습니다.
 
-표준 한글 두벌식 입력 소스에서는 물리 키를 한글 음절로 조합합니다. 그 외 입력기는 이벤트의 유니코드 문자를 사용합니다. 손쉬운 사용 API는 비밀번호 필드 확인에만 사용합니다. 실제 Mac IME 조합은 아직 실행 검증하지 않았습니다. 모델 추론은 빌드 시 골든 케이스로 검사합니다.
+표준 한글 두벌식 입력 소스에서는 물리 키를 한글 음절로 조합합니다. 그 외 입력기는 이벤트의 유니코드 문자를 사용합니다. 손쉬운 사용 API는 비밀번호 필드 확인에만 사용합니다. 실제 Mac IME 조합은 아직 실행 검증하지 않았습니다.
 
 Mac에서 배포 전 확인할 항목: 양쪽 아키텍처 빌드, 입력 권한 허용/거절, TextEdit·브라우저의 한글 조합 및 Enter, 비밀번호 입력 제외, 연속 입력의 두 발, 8개 감정과 사용자 4프레임 매핑, 감정 인식 켜기/끄기 시 메모리 해제, 듀얼 모니터와 Dock 위치 변경. 현재 Windows 환경에서 이 Mac GUI 검증을 완료했다고 주장하지 않습니다.

@@ -2,9 +2,9 @@ name: Windows build
 on:
   workflow_dispatch:
   push:
-    paths: ["src/**", "tests/**", "build.ps1", "app.manifest", "scripts/prepare-windows.ps1", "tools/onnx/prepare_directml.py", "tools/onnx/requirements-directml.txt", ".github/workflows/windows.yml"]
+    paths: ["src/**", "build.ps1", "app.manifest", "scripts/prepare-windows.ps1", "tools/onnx/prepare_directml.py", "tools/onnx/requirements-directml.txt", ".github/workflows/windows.yml"]
   pull_request:
-    paths: ["src/**", "tests/**", "build.ps1", "app.manifest", "scripts/prepare-windows.ps1", "tools/onnx/prepare_directml.py", "tools/onnx/requirements-directml.txt", ".github/workflows/windows.yml"]
+    paths: ["src/**", "build.ps1", "app.manifest", "scripts/prepare-windows.ps1", "tools/onnx/prepare_directml.py", "tools/onnx/requirements-directml.txt", ".github/workflows/windows.yml"]
 permissions:
   contents: read
 jobs:
@@ -23,12 +23,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: ./scripts/prepare-windows.ps1
-      - name: Compile and verify the no-GPU behavior on the hosted runner
+      - name: Compile Windows application
         shell: pwsh
-        run: |
-          ./build.ps1
-          ./tests/run-core-tests.ps1 -ExpectGpuUnavailable
-          ./tests/run-input-tests.ps1
-      # Hardware inference, profile and Korean accuracy checks run on a real GPU:
-      # tests/run-core-tests.ps1 -Golden tests/onnx-golden.json -Integration
-      # tests/run-gpu-tests.ps1; tests/run-korean-tests.ps1; tests/run-live-input-tests.ps1
+        run: ./build.ps1

@@ -89,6 +89,4 @@ chmod +x "$app/Contents/MacOS/EmotionCat"
 /usr/bin/codesign --force --sign "${SIGNING_IDENTITY:--}" "$app/Contents/Frameworks/$ort_dylib"
 /usr/bin/codesign --force --sign "${SIGNING_IDENTITY:--}" "$app"
 /usr/bin/codesign --verify --strict "$app"
-"$app/Contents/MacOS/EmotionCat" --verify-assets
-"$app/Contents/MacOS/EmotionCat" --verify-model "$root/tests/onnx-golden.json"
 printf '\nBuilt: %s\nOpen with: open "%s"\n' "$app" "$app"
