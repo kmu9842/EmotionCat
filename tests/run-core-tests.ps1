@@ -1,4 +1,4 @@
-param([switch]$Integration, [string]$Golden = '', [string]$Accuracy = '')
+param([switch]$Integration, [string]$Golden = '')
 
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $PSScriptRoot
@@ -23,7 +23,6 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Core test compilation failed.' }
     $testArgs = @()
     if ($Golden) { $testArgs += @('--golden', $Golden) }
-    if ($Accuracy) { $testArgs += @('--accuracy', $Accuracy) }
     if ($Integration) { $testArgs += '--integration' }
     & $testExecutable @testArgs
     if ($LASTEXITCODE -ne 0) { throw 'Core tests failed.' }
