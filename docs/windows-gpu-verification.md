@@ -1,7 +1,7 @@
 # Windows GPU / Korean verification
 
 Verified locally on 2026-09-23: Windows 11 x64, NVIDIA GeForce RTX 5060 Ti,
-driver 610.47, .NET Framework 4.8, for the Windows GPU update after v2.0.0.
+driver 610.47, .NET Framework 4.8, for the Windows GPU implementation in 1.0.0.
 These measurements cover the local hardware; the release workflow separately
 builds and verifies the distributed archives.
 
@@ -65,7 +65,7 @@ are visible separately in the app.
 GPU model SHA-256:
 `12c70367fc1211121844c1d6e41b9395961c9fa0b89348df094375e32a7365d3`
 
-Final executable SHA-256:
+Measured executable SHA-256 (before adding the 1.0.0 version metadata):
 `d1e701ca8cd37b328fa6a1944c7640d356e1a5e9b37c14d25f76ff6f86482d77`
 
 Windows packaging includes only the GPU model, tokenizer, native DLLs, sprites

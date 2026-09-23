@@ -1,4 +1,4 @@
-# EmotionCat
+# EmotionCat 1.0.0
 
 참고 이미지 기반의 로컬 감정 봉고캣입니다. Windows는 .NET Framework 4.8/WinForms, macOS는 Swift/AppKit을 사용합니다. Windows 감정 모델은 **Laya multilingual 322M / FP16 / DirectML GPU 전용**입니다. 하드웨어 GPU를 사용할 수 없거나 GPU 실행에 실패하면 경고를 표시하고 감정 분석을 끕니다. CPU 추론으로 전환하지 않습니다. 사용자 PC에는 Python·CUDA·로컬 서버 설치가 필요하지 않습니다.
 
@@ -10,7 +10,7 @@
 - **macOS 13.4+ (Universal):** `EmotionCat-<버전>-macOS-universal.zip` 압축을 풀어 `EmotionCat.app`을 `/Applications`로 옮깁니다. Apple 공증을 받지 않은 자체 서명 앱이므로 차단되면 `xattr -dr com.apple.quarantine /Applications/EmotionCat.app`을 실행합니다. 첫 실행 때 뜨는 **입력 모니터링**·**손쉬운 사용** 권한을 허용하면 바로 동작합니다.
 - **Linux:** 데스크톱 앱은 아직 없습니다.
 
-모델과 실행 라이브러리가 ZIP에 포함되어 압축을 풀면 오프라인으로 동작합니다. Windows GPU 모델은 약 646MB이고, macOS는 별도의 int8 모델을 사용합니다. Windows v2.0.0의 CPU 모델을 GPU 빌드에 그대로 복사해서 사용할 수 없습니다.
+모델과 실행 라이브러리가 ZIP에 포함되어 압축을 풀면 오프라인으로 동작합니다. Windows GPU 모델은 약 646MB이고, macOS는 별도의 int8 모델을 사용합니다. 기존 Windows CPU 모델을 GPU 빌드에 그대로 복사해서 사용할 수 없습니다.
 
 `v*` 태그를 push하면 `.github/workflows/release.yml`이 두 OS를 빌드해 릴리스로 게시합니다.
 
