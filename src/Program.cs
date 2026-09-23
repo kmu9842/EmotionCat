@@ -93,6 +93,18 @@ namespace EmotionCat
             monitor.StatusChanged += text => OnUI(delegate { InputStatus = text; RefreshStatus(); });
             Client.StatusChanged += text => OnUI(delegate { ModelStatus = text; RefreshStatus(); if (Client.IsReady && queuedText != null && !analyzing) ProcessQueue(); });
             Client.HealthChanged += delegate { OnUI(delegate { RefreshStatus(); }); };
+            Client.InferenceUnavailable += reason => OnUI(delegate
+            {
+                Settings.InputEnabled = false;
+                ModelStatus = reason;
+                ApplySettings();
+                if (persistSettings)
+                {
+                    // Keep a visible warning even if Windows suppresses tray notifications.
+                    OpenSettings();
+                    tray.ShowBalloonTip(10000, "GPU 감정 분석 꺼짐", reason, ToolTipIcon.Warning);
+                }
+            });
             idle.Tick += delegate { idle.Stop(); ShowEmotion("neutral"); };
             ApplySettings();
             if (!previewOnly) { monitor.Start(); StartModel(); }
@@ -106,11 +118,11 @@ namespace EmotionCat
         }
         public void ApplySettings(bool persist = true)
         {
-            monitor.Enabled = Settings.InputEnabled && !previewOnly;
+            monitor.Enabled = Settings.InputEnabled && Client.IsReady && !previewOnly;
             monitor.DebounceMilliseconds = Settings.DebounceMilliseconds;
             monitor.InputMode = Settings.InputMode;
             if (!monitor.ExcludedProcesses.SequenceEqual(Settings.ExcludedProcesses)) monitor.ExcludedProcesses = Settings.ExcludedProcesses;
-            pauseItem.Checked = !Settings.InputEnabled; clickItem.Checked = Settings.ClickThrough;
+            pauseItem.Checked = !Settings.InputEnabled; pauseItem.Enabled = Client.IsReady; clickItem.Checked = Settings.ClickThrough;
             if (!Settings.InputEnabled) { InvalidateRequests(); ShowEmotion("neutral"); }
             overlay.ApplySettings();
             if (persist) SaveSettings(); else { saveDelay.Stop(); saveDelay.Start(); }
@@ -134,13 +146,13 @@ namespace EmotionCat
         {
             if (restarting || exiting) return;
             restarting = true;
-            try { InvalidateRequests(); Client.Stop(); await Client.StartAsync(Settings); ModelStatus = Client.Status; RefreshStatus(); }
+            try { InvalidateRequests(); monitor.Enabled = false; Client.Stop(); await Client.StartAsync(Settings); ModelStatus = Client.Status; ApplySettings(); }
             finally { restarting = false; }
         }
         void InvalidateRequests() { requestVersion++; queuedText = null; }
         void QueueText(string text, long context)
         {
-            if (!Settings.InputEnabled || context != monitor.ContextVersion || String.IsNullOrWhiteSpace(text)) return;
+            if (!Settings.InputEnabled || !Client.IsReady || context != monitor.ContextVersion || String.IsNullOrWhiteSpace(text)) return;
             LastInputText = text; LastCapturedAt = DateTime.Now; CaptureCount++;
             queuedText = text; queuedContext = context; requestVersion++;
             RefreshStatus();
@@ -185,6 +197,8 @@ namespace EmotionCat
             if (result.Confidence < Settings.MinConfidence && Settings.Emotions.Any(x => x.Id == "neutral")) result.Emotion = "neutral";
             var label = Settings.Emotions.Find(x => x.Id == result.Emotion);
             DecisionSummary = (label == null ? result.Emotion : label.Name) + " · " + result.Confidence.ToString("P0") + " · " + result.ElapsedMs.ToString("0") + " ms · " + result.Device;
+            if (result.Source == "profanity-rule") DecisionSummary = "화남 · 욕설 우선 규칙";
+            else if (result.Source == "korean-rule") DecisionSummary = (label == null ? result.Emotion : label.Name) + " · 한국어 표현 규칙";
             if (raw != result.Emotion) DecisionSummary += "\n확신이 낮아 평온으로 표시 (모델 선택: " + raw + ")";
             RefreshStatus();
         }

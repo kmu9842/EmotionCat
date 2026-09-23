@@ -48,7 +48,8 @@ namespace EmotionCat
         public string InputMode { get; set; }
         public string ClassificationPrompt { get; set; }
         public double MinConfidence { get; set; }
-        public const string DefaultPrompt = "문장을 쓴 사람은 어떤 감정을 느끼고 있나요?";
+        public const string DefaultPrompt = "한국어 구어체, 줄임말, 자모와 이모티콘을 문맥에 맞게 읽고 화자의 감정을 고르세요. 욕설과 모욕은 항상 분노입니다. 감사와 애정은 사랑, 웃음과 성취는 기쁨, 서운함과 외로움은 슬픔, 피곤함은 졸림입니다. 감정이 없는 일상 질문과 요청은 무감정입니다.";
+        internal const string PreviousPrompt = "문장을 쓴 사람은 어떤 감정을 느끼고 있나요?";
         private const string LegacyPrompt = "Which emotion is expressed by the writer? Choose neutral for factual statements, ordinary questions, commands, or unclear feelings. Classify the tone of the input, not emotion words mentioned as a topic. Use sadness only for clearly sad feelings.";
         private static readonly string[] LegacyDescriptions = {
             "Neutral, calm, ordinary conversation without a strong emotion.",
@@ -86,8 +87,8 @@ namespace EmotionCat
             SnapToTaskbar = true;
             Model = "multilingual";
             PythonPath = "";
-            SettingsVersion = 6;
-            Device = "auto";
+            SettingsVersion = 7;
+            Device = "directml";
             InputMode = "auto";
             ClassificationPrompt = DefaultPrompt;
             MinConfidence = 0.25;
@@ -161,6 +162,12 @@ namespace EmotionCat
                     if (settings.HoldSeconds == 4) settings.HoldSeconds = 1;
                     settings.SettingsVersion = 6;
                 }
+                if (!fields.ContainsKey("SettingsVersion") || settings.SettingsVersion < 7)
+                {
+                    if (settings.ClassificationPrompt == PreviousPrompt) settings.ClassificationPrompt = DefaultPrompt;
+                    settings.Device = "directml";
+                    settings.SettingsVersion = 7;
+                }
                 settings.Normalize();
                 return settings;
             }
@@ -208,7 +215,7 @@ namespace EmotionCat
             HoldSeconds = Math.Max(1, Math.Min(120, HoldSeconds));
             Model = "multilingual";
             if (PythonPath == null) PythonPath = "";
-            if (Device != "cuda" && Device != "cpu" && Device != "mps") Device = "auto";
+            Device = "directml";
             if (String.IsNullOrWhiteSpace(ClassificationPrompt)) ClassificationPrompt = DefaultPrompt;
             ClassificationPrompt = Limit(ClassificationPrompt, 1000);
             if (Double.IsNaN(MinConfidence) || Double.IsInfinity(MinConfidence)) MinConfidence = 0.25;
@@ -254,6 +261,13 @@ namespace EmotionCat
             {
                 if (valid.Count == 16) valid.RemoveAt(valid.Count - 1);
                 valid.Insert(0, defaults["neutral"]);
+            }
+            // Profanity must always have a configured angry expression, including
+            // old settings in which the user removed it.
+            if (!valid.Any(e => e.Id == "angry"))
+            {
+                if (valid.Count == 16) valid.RemoveAt(valid.Count - 1);
+                valid.Add(defaults["angry"]);
             }
             if (valid.Count < 2) valid = DefaultEmotions();
             Emotions = valid;

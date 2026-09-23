@@ -12,13 +12,13 @@ namespace EmotionCat
         public long[] MarkerPositions;
     }
 
-    /// In-process Laya multilingual inference (int8 ONNX). Sequence rules: tools/onnx/make_golden.py.
+    /// In-process GPU-only Laya inference. CPU EP fallback is forbidden by the runtime.
     public sealed class LayaEngine : IDisposable
     {
-        public const string ModelFile = "laya-multilingual-int8.onnx";
+        public const string ModelFile = "laya-multilingual-gpu.onnx";
         public const string TokenizerFile = "tokenizer.bin";
-        private const int Cls = 2, Sep = 1, Mask = 4, MaxLen = 1024;
-        private static readonly string[] InputNames = { "input_ids", "marker_pos", "marker_mask" };
+        private const int Cls = 2, Sep = 1, Mask = 4, MaxLen = 1024, MaxOptions = 16;
+        private static readonly string[] InputNames = { "input_ids", "marker_pos", "marker_mask", "attention_mask" };
         private readonly OnnxRuntime ort = OnnxRuntime.Instance;
         private readonly object gate = new object();
         private IntPtr env, session, memoryInfo;
@@ -32,7 +32,7 @@ namespace EmotionCat
             get { return File.Exists(Path.Combine(ModelDirectory, ModelFile)) && File.Exists(Path.Combine(ModelDirectory, TokenizerFile)); }
         }
 
-        public LayaEngine(string directory, int threads)
+        public LayaEngine(string directory, int threads, string profilePath = null)
         {
             inputNames = InputNames.Select(n => Marshal.StringToHGlobalAnsi(n)).ToArray();
             outputNames = new[] { Marshal.StringToHGlobalAnsi("logits") };
@@ -41,7 +41,7 @@ namespace EmotionCat
                 Tokenizer = new LayaTokenizer(Path.Combine(directory, TokenizerFile));
                 env = ort.CreateEnv();
                 memoryInfo = ort.CreateCpuMemoryInfo();
-                session = ort.CreateSession(env, Path.Combine(directory, ModelFile), threads);
+                session = ort.CreateSession(env, Path.Combine(directory, ModelFile), threads, profilePath);
             }
             catch { Dispose(); throw; }
         }
@@ -106,19 +106,33 @@ namespace EmotionCat
             lock (gate)
             {
                 if (session == IntPtr.Zero) throw new ObjectDisposedException("LayaEngine");
+                if (sequence == null || sequence.InputIds == null || sequence.MarkerPositions == null
+                    || sequence.InputIds.Length < 1 || sequence.InputIds.Length > MaxLen
+                    || sequence.MarkerPositions.Length < 2 || sequence.MarkerPositions.Length > MaxOptions
+                    || sequence.MarkerPositions.Any(p => p < 0 || p >= sequence.InputIds.Length))
+                    throw new ArgumentException("문장 또는 감정 선택지 길이가 올바르지 않습니다.", "sequence");
                 int k = sequence.MarkerPositions.Length;
-                var mask = Enumerable.Repeat((byte)1, k).ToArray();
-                var pins = new[] { GCHandle.Alloc(sequence.InputIds, GCHandleType.Pinned), GCHandle.Alloc(sequence.MarkerPositions, GCHandleType.Pinned), GCHandle.Alloc(mask, GCHandleType.Pinned) };
-                var inputs = new IntPtr[3];
+                var tokens = Enumerable.Repeat((long)Sep, MaxLen).ToArray();
+                var markers = new long[MaxOptions];
+                var mask = new byte[MaxOptions];
+                var attentionMask = new long[MaxLen];
+                Array.Copy(sequence.InputIds, tokens, sequence.InputIds.Length);
+                Array.Copy(sequence.MarkerPositions, markers, k);
+                for (int i = 0; i < k; i++) mask[i] = 1;
+                for (int i = 0; i < sequence.InputIds.Length; i++) attentionMask[i] = 1;
+                var pins = new[] { GCHandle.Alloc(tokens, GCHandleType.Pinned), GCHandle.Alloc(markers, GCHandleType.Pinned), GCHandle.Alloc(mask, GCHandleType.Pinned), GCHandle.Alloc(attentionMask, GCHandleType.Pinned) };
+                var inputs = new IntPtr[4];
                 IntPtr output = IntPtr.Zero;
                 try
                 {
-                    inputs[0] = ort.CreateTensor(memoryInfo, pins[0].AddrOfPinnedObject(), sequence.InputIds.Length * 8L, new long[] { 1, sequence.InputIds.Length }, OnnxRuntime.TensorInt64);
-                    inputs[1] = ort.CreateTensor(memoryInfo, pins[1].AddrOfPinnedObject(), k * 8L, new long[] { 1, k }, OnnxRuntime.TensorInt64);
-                    inputs[2] = ort.CreateTensor(memoryInfo, pins[2].AddrOfPinnedObject(), k, new long[] { 1, k }, OnnxRuntime.TensorBool);
+                    inputs[0] = ort.CreateTensor(memoryInfo, pins[0].AddrOfPinnedObject(), MaxLen * 8L, new long[] { 1, MaxLen }, OnnxRuntime.TensorInt64);
+                    inputs[1] = ort.CreateTensor(memoryInfo, pins[1].AddrOfPinnedObject(), MaxOptions * 8L, new long[] { 1, MaxOptions }, OnnxRuntime.TensorInt64);
+                    inputs[2] = ort.CreateTensor(memoryInfo, pins[2].AddrOfPinnedObject(), MaxOptions, new long[] { 1, MaxOptions }, OnnxRuntime.TensorBool);
+                    inputs[3] = ort.CreateTensor(memoryInfo, pins[3].AddrOfPinnedObject(), MaxLen * 8L, new long[] { 1, MaxLen }, OnnxRuntime.TensorInt64);
                     output = ort.Run(session, inputNames, inputs, outputNames);
                     var logits = new float[k];
                     Marshal.Copy(ort.TensorData(output), logits, 0, k);
+                    if (logits.Any(v => Single.IsNaN(v) || Single.IsInfinity(v))) throw new InvalidOperationException("GPU 감정 모델이 유효하지 않은 점수를 반환했습니다.");
                     double max = logits.Max();
                     double[] exp = logits.Select(l => Math.Exp(l - max)).ToArray();
                     double sum = exp.Sum();

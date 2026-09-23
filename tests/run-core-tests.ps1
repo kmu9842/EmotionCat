@@ -1,4 +1,4 @@
-﻿param([switch]$Integration, [string]$Golden = '')
+param([switch]$Integration, [string]$Golden = '', [switch]$ExpectGpuUnavailable)
 
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $PSScriptRoot
@@ -16,6 +16,7 @@ try {
     & $compiler /nologo /target:exe /platform:x64 "/out:$testExecutable" /r:System.Web.Extensions.dll /r:System.Drawing.dll `
         (Join-Path $projectDirectory 'src\AppSettings.cs') `
         (Join-Path $projectDirectory 'src\LayaClient.cs') `
+        (Join-Path $projectDirectory 'src\KoreanEmotionRules.cs') `
         (Join-Path $projectDirectory 'src\LayaEngine.cs') `
         (Join-Path $projectDirectory 'src\LayaTokenizer.cs') `
         (Join-Path $projectDirectory 'src\OnnxRuntime.cs') `
@@ -24,6 +25,7 @@ try {
     $testArgs = @()
     if ($Golden) { $testArgs += @('--golden', $Golden) }
     if ($Integration) { $testArgs += '--integration' }
+    if ($ExpectGpuUnavailable) { $testArgs += '--expect-gpu-unavailable' }
     & $testExecutable @testArgs
     if ($LASTEXITCODE -ne 0) { throw 'Core tests failed.' }
 }

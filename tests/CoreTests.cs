@@ -38,8 +38,8 @@ internal static class CoreTests
             "A partial settings file must preserve defaults for missing values.");
         var missingNeutral = new AppSettings { Emotions = new List<EmotionDefinition> { new EmotionDefinition("custom", "Custom", "Custom feeling") } };
         missingNeutral.Normalize();
-        Check(missingNeutral.Emotions.Count == 2 && missingNeutral.Emotions.Exists(e => e.Id == "neutral")
-            && missingNeutral.Emotions.Exists(e => e.Id == "custom"), "Neutral fallback must be repaired without losing a custom emotion.");
+        Check(missingNeutral.Emotions.Count == 3 && missingNeutral.Emotions.Exists(e => e.Id == "neutral")
+            && missingNeutral.Emotions.Exists(e => e.Id == "angry") && missingNeutral.Emotions.Exists(e => e.Id == "custom"), "Required neutral/angry expressions must be repaired without losing a custom emotion.");
         var fullCustom = new AppSettings { Emotions = new List<EmotionDefinition>() };
         for (int i = 0; i < 16; i++) fullCustom.Emotions.Add(new EmotionDefinition("custom_" + i, "Custom", "Custom feeling"));
         fullCustom.Normalize();
@@ -65,11 +65,49 @@ internal static class CoreTests
         MustReject(() => LayaClient.ParseClassification(response, defaults.Emotions), "Invalid timing must be rejected.");
         response.Remove("confidence");
         MustReject(() => LayaClient.ParseClassification(response, defaults.Emotions), "Missing confidence must be rejected.");
+        Check(defaults.Device == "directml", "The runtime must require a GPU.");
+        foreach (var text in new[] { "씨발", "씨 발", "시발", "시1발", "씨이발", "ㅆㅣ발", "개색기", "ㅅㅂ", "ㅆㅂ", "ㅂㅅ", "개새끼", "병신", "존나 좋다ㅋㅋ", "미친 최고야", "fuck", "씨\u200b발" })
+            Check(KoreanEmotionRules.HasProfanity(text), "Profanity not detected: " + text);
+        foreach (var text in new[] { "시발점", "시발역", "시바견", "사랑해", "고마워ㅠㅠ", "파일을 저장했어", "class", "assignment" })
+            Check(!KoreanEmotionRules.HasProfanity(text), "Ordinary text matched profanity: " + text);
+        Check(KoreanEmotionRules.ExplicitEmotion("고마워ㅠㅠ") == "love", "Gratitude must outweigh a crying emoticon.");
+        Check(KoreanEmotionRules.ExplicitEmotion("졸려 죽겠다") == "sleepy", "A tired idiom must not become anger.");
+        Check(KoreanEmotionRules.ExplicitEmotion("ㄱㅅㄱㅅ") == "love", "Repeated chat abbreviations must be understood.");
+        Check(KoreanEmotionRules.ExplicitEmotion("사랑이라는 단어를 검색해 줘") == "neutral", "Mentioning an emotion is not expressing it.");
+        Check(KoreanEmotionRules.ExplicitEmotion("별로 행복하지 않아") == null, "Negated happiness must reach the contextual model.");
+        Check(KoreanEmotionRules.ExplicitEmotion("안 졸려") == null, "Negated sleepiness must not force sleepy.");
+        Check(KoreanEmotionRules.ExplicitEmotion("슬펐지만 지금은 행복해") == "excited", "The latest explicit feeling wins in a mixed sentence.");
+        Check(KoreanEmotionRules.PrepareText("\ud83d").Length == 1, "A partial emoji must not disable analysis.");
+        RunUnavailable().GetAwaiter().GetResult();
         Console.WriteLine("Core tests passed: " + checks);
         int golden = Array.IndexOf(args, "--golden");
         if (golden >= 0) RunGolden(args[golden + 1]);
         if (Array.IndexOf(args, "--integration") >= 0) RunIntegration().GetAwaiter().GetResult();
+        if (Array.IndexOf(args, "--expect-gpu-unavailable") >= 0)
+        {
+            using (var client = new LayaClient())
+            {
+                client.StartAsync(defaults).GetAwaiter().GetResult();
+                Check(!client.IsReady && client.UnavailableReason != null, "A machine without a supported GPU must disable analysis.");
+                Check(client.ClassifyAsync("씨발", defaults.Emotions).GetAwaiter().GetResult() == null, "No fallback is permitted, including rules.");
+                Console.WriteLine("PASS unavailable GPU/runtime disables analysis: " + client.Status);
+            }
+        }
         return 0;
+    }
+
+    private static async Task RunUnavailable()
+    {
+        int failures = 0;
+        var settings = new AppSettings();
+        using (var client = new LayaClient(delegate { throw new InvalidOperationException("No hardware GPU available (test fixture)."); }))
+        {
+            client.InferenceUnavailable += reason => { failures++; Check(reason.Contains("감정 분석을 껐습니다"), "GPU failure needs a clear warning."); };
+            await client.StartAsync(settings);
+            Check(!client.IsReady && client.UnavailableReason != null && failures == 1, "GPU failure must disable inference and notify once.");
+            Check(await client.ClassifyAsync("씨발", settings.Emotions) == null, "Profanity rules must not run when the GPU is unavailable.");
+            Check(await client.ClassifyAsync("행복해", settings.Emotions) == null, "There must be no CPU fallback.");
+        }
     }
 
     private static object Get(Dictionary<string, object> item, string key)
@@ -124,14 +162,18 @@ internal static class CoreTests
         {
             client.StatusChanged += state => Console.WriteLine(state);
             await client.StartAsync(settings);
-            DateTime deadline = DateTime.UtcNow.AddMinutes(2);
-            while (!client.IsReady && DateTime.UtcNow < deadline) await Task.Delay(500);
             Check(client.IsReady, "Installed local Laya worker did not become ready: " + client.Status);
             var watch = System.Diagnostics.Stopwatch.StartNew();
             var result = await client.ClassifyAsync("와 신난다! 너무 행복하고 기뻐!", settings.Emotions, settings.ClassificationPrompt, "test");
             watch.Stop();
             Check(result != null && settings.Emotions.Exists(e => e.Id == result.Emotion), "Live classifier did not return a configured emotion.");
             Check(result.Emotion == "excited", "Synthetic Korean joy must reach a matching configured expression.");
+            Check(result.Device == "directml", "The session must require DirectML.");
+            foreach (string text in new[] { "씨발", "존나 행복해", "ㅂㅅ", "씨 발", "ㅆㅂ" })
+            {
+                var profanity = await client.ClassifyAsync(text, settings.Emotions);
+                Check(profanity.Emotion == "angry" && profanity.Confidence == 1 && profanity.Source == "profanity-rule", "Profanity must force anger even in a positive sentence.");
+            }
             Console.WriteLine("Live Laya result: " + result.Emotion + ", model " + result.ElapsedMs + " ms, C# roundtrip " + watch.ElapsedMilliseconds + " ms, device " + result.Device);
             client.Stop();
             Check(!client.IsReady, "Stopped worker must not remain ready.");

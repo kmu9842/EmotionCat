@@ -1,16 +1,16 @@
 # EmotionCat
 
-참고 이미지 기반의 로컬 감정 봉고캣입니다. Windows는 .NET Framework 4.8/WinForms, macOS는 Swift/AppKit을 사용합니다. 브라우저 런타임이나 게임 엔진은 포함하지 않습니다. 감정 모델은 **Laya multilingual 322M**을 ONNX(int8)로 변환해 앱 안에서 ONNX Runtime으로 직접 실행합니다. Python·로컬 서버·추가 다운로드가 없습니다.
+참고 이미지 기반의 로컬 감정 봉고캣입니다. Windows는 .NET Framework 4.8/WinForms, macOS는 Swift/AppKit을 사용합니다. Windows 감정 모델은 **Laya multilingual 322M / FP16 / DirectML GPU 전용**입니다. 하드웨어 GPU를 사용할 수 없거나 GPU 실행에 실패하면 경고를 표시하고 감정 분석을 끕니다. CPU 추론으로 전환하지 않습니다. 사용자 PC에는 Python·CUDA·로컬 서버 설치가 필요하지 않습니다.
 
 ## 다운로드
 
 [Releases](https://github.com/kmu9842/EmotionCat/releases/latest)에서 OS별 ZIP을 받으세요.
 
-- **Windows 10/11 x64:** `EmotionCat-<버전>-windows-x64.zip` 압축을 쓰기 가능한 폴더에 풀고 `EmotionCat.exe`를 실행합니다.
+- **Windows 10/11 x64 + DirectX 12 지원 하드웨어 GPU:** `EmotionCat-<버전>-windows-x64.zip` 압축을 쓰기 가능한 폴더에 풀고 `EmotionCat.exe`를 실행합니다. DirectML/DXCore를 지원하는 최신 그래픽 드라이버가 필요합니다. NVIDIA·AMD·Intel GPU를 사용하며, 소프트웨어 GPU는 사용하지 않습니다.
 - **macOS 13.4+ (Universal):** `EmotionCat-<버전>-macOS-universal.zip` 압축을 풀어 `EmotionCat.app`을 `/Applications`로 옮깁니다. Apple 공증을 받지 않은 자체 서명 앱이므로 차단되면 `xattr -dr com.apple.quarantine /Applications/EmotionCat.app`을 실행합니다. 첫 실행 때 뜨는 **입력 모니터링**·**손쉬운 사용** 권한을 허용하면 바로 동작합니다.
 - **Linux:** 데스크톱 앱은 아직 없습니다.
 
-두 앱 모두 모델(약 310MB)과 ONNX Runtime이 ZIP 안에 들어 있어, 압축만 풀면 인터넷 없이 바로 동작합니다.
+모델과 실행 라이브러리가 ZIP에 포함되어 압축을 풀면 오프라인으로 동작합니다. Windows GPU 모델은 약 646MB이고, macOS는 별도의 int8 모델을 사용합니다. Windows v2.0.0의 CPU 모델을 GPU 빌드에 그대로 복사해서 사용할 수 없습니다.
 
 `v*` 태그를 push하면 `.github/workflows/release.yml`이 두 OS를 빌드해 릴리스로 게시합니다.
 
@@ -24,10 +24,12 @@ EmotionCat.exe 또는 Start EmotionCat.cmd를 실행하세요. 고양이를 우�
 
 ## 감정 모델
 
-- `model/laya-multilingual-int8.onnx`: Laya multilingual 322M(Apache-2.0)을 ONNX로 변환하고 가중치를 int8(per-tensor)로 양자화한 모델입니다. 1.29GB → 310MB.
+- Windows `model/laya-multilingual-gpu.onnx`: Laya multilingual 322M(Apache-2.0) FP16 모델입니다. 고정된 입력 크기와 패딩 마스크로 형상 계산을 미리 정리해 모든 모델 노드가 DirectML에서 실행되도록 합니다. `session.disable_cpu_ep_fallback=1`을 적용합니다.
+- macOS `model/laya-multilingual-int8.onnx`: 별도의 int8(per-tensor) 모델입니다. 이번 Windows GPU 전환과는 다른 런타임을 사용합니다.
 - `model/tokenizer.bin`: 원본 토크나이저(BPE, 어휘 256k)를 앱이 바로 읽는 형식으로 묶은 파일입니다. C#·Swift 구현이 원본과 3,060개 문장에서 토큰 단위로 일치합니다.
-- CPU에서 문장 하나 분석에 약 30~120ms(CPU에 따라 다름)가 걸리고, 원본 fp32와 같은 정확도(시험 40문장 중 36개)를 냅니다.
-- 변환·양자화·검증 스크립트는 `tools/onnx/`에 있습니다(개발용, 사용자 PC에서는 실행하지 않음). 빌드용 모델 파일은 [`model-v2` 릴리스](https://github.com/kmu9842/EmotionCat/releases/tag/model-v2)에 있습니다.
+- GPU 연결 상태를 확인한 뒤 욕설을 최우선으로 화남에 연결합니다. 한국어 구어체·줄임말·자모 표현의 명확한 감정은 표현 규칙으로 처리하고, 그 밖의 문맥은 GPU 모델로 판단합니다. 설정의 분류 결과에 적용된 규칙 또는 GPU 모델을 구분해서 표시합니다.
+- 프롬프트는 한국어 구어체, 감사·애정, 서운함·외로움, 피곤함, 감정 없는 질문·요청을 명시합니다. 기존 기본 프롬프트는 업데이트 시 새 기본값으로 바꾸며, 사용자가 작성한 프롬프트는 유지합니다. 규칙은 모든 신조어·비꼼·복잡한 부정을 완벽하게 이해하지는 않습니다.
+- 변환·검증 스크립트는 `tools/onnx/`에 있습니다(개발용). GPU 모델은 SHA-256으로 고정한 [`model-v1`의 FP32 원본](https://github.com/kmu9842/EmotionCat/releases/tag/model-v1)에서 생성합니다. 토크나이저는 [`model-v2`](https://github.com/kmu9842/EmotionCat/releases/tag/model-v2)를 사용합니다.
 
 ## 입력과 응답
 
@@ -39,13 +41,18 @@ Windows 전역 키보드 훅에서 문자를 받아 최대 240자를 메모리�
 
 ## 빌드와 검증
 
-빌드 전에 [`model-v2` 릴리스](https://github.com/kmu9842/EmotionCat/releases/tag/model-v2)의 `laya-multilingual-int8.onnx`·`tokenizer.bin`을 `model/`에, [ONNX Runtime 1.23.2](https://github.com/microsoft/onnxruntime/releases/tag/v1.23.2) Windows x64의 `onnxruntime.dll`을 프로젝트 루트에 둡니다.
+Windows 개발 빌드는 GitHub CLI 인증과 Python 3.12 이상이 필요합니다. 아래 준비 스크립트가 별도 빌드 환경에서 FP16 모델을 만들고 ONNX Runtime DirectML 1.24.4와 DirectML 1.15.4를 배치합니다. 이 개발 도구들은 배포 ZIP에 포함하지 않습니다.
 
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-windows.ps1
     powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
     powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-core-tests.ps1 -Golden tests/onnx-golden.json -Integration
+    powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-gpu-tests.ps1
+    powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-korean-tests.ps1
     powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-input-tests.ps1
     powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-live-input-tests.ps1
     powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-visual-tests.ps1
+
+GPU가 없는 CI에서는 `tests/run-core-tests.ps1 -ExpectGpuUnavailable`로 분석이 비활성화되는지 검사합니다. GPU 프로파일·정확도·실입력 검사는 GPU가 있는 컴퓨터에서 실행해야 합니다. `run-gpu-tests.ps1`는 CPU EP 노드가 0개인지와 대기 CPU 사용률을 검사합니다.
 
 Live 검사는 실행 중인 EmotionCat을 종료한 후 실행합니다. 편집 컨트롤이 없는 별도 시험 창에만 OS 키 이벤트를 보내고, 그 프로세스만 감지합니다. 한/영 자동 감지 → 한글 조합 → 0.5초 대기 → Laya(ONNX) → 실제 투명 창의 하트·화남 프레임까지 검증합니다. 무입력과 보조키 입력 중 추론 횟수가 증가하지 않는지도 확인합니다. 사용자의 실제 입력은 테스트로 수집하지 않습니다.
 

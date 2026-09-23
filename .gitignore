@@ -18,5 +18,6 @@ model/
 EmotionCat.exe
 licenses/
 onnxruntime.dll
+DirectML.dll
 ort/
 ort.zip

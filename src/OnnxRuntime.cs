@@ -9,10 +9,12 @@ namespace EmotionCat
     {
         private const uint ApiVersion = 23;
         private const int IdxGetErrorMessage = 2, IdxCreateEnv = 3, IdxCreateSession = 7, IdxRun = 9,
-            IdxCreateSessionOptions = 10, IdxSetGraphOptimization = 23, IdxSetIntraOpThreads = 24,
+            IdxCreateSessionOptions = 10, IdxSetExecutionMode = 13, IdxEnableProfiling = 14, IdxDisableMemPattern = 17,
+            IdxSetGraphOptimization = 23, IdxSetIntraOpThreads = 24,
             IdxSetInterOpThreads = 25, IdxCreateTensorWithData = 49, IdxGetTensorMutableData = 51,
             IdxCreateCpuMemoryInfo = 69, IdxReleaseEnv = 92, IdxReleaseStatus = 93, IdxReleaseMemoryInfo = 94,
-            IdxReleaseSession = 95, IdxReleaseValue = 96, IdxReleaseSessionOptions = 100;
+            IdxReleaseSession = 95, IdxReleaseValue = 96, IdxReleaseSessionOptions = 100,
+            IdxAddSessionConfigEntry = 130, IdxGetExecutionProviderApi = 195;
         internal const int TensorFloat = 1, TensorInt64 = 7, TensorBool = 9;
 
         [DllImport("onnxruntime.dll", CallingConvention = CallingConvention.StdCall)]
@@ -25,6 +27,12 @@ namespace EmotionCat
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr RunFn(IntPtr session, IntPtr runOptions, IntPtr[] inputNames, IntPtr[] inputs, UIntPtr inputCount, IntPtr[] outputNames, UIntPtr outputCount, IntPtr[] outputs);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr CreateOptionsFn(out IntPtr options);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr SetIntFn(IntPtr options, int value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr OptionsFn(IntPtr options);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr ProfileFn(IntPtr options, [MarshalAs(UnmanagedType.LPWStr)] string path);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr ConfigFn(IntPtr options, [MarshalAs(UnmanagedType.LPStr)] string key, [MarshalAs(UnmanagedType.LPStr)] string value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr ProviderApiFn([MarshalAs(UnmanagedType.LPStr)] string name, uint version, out IntPtr api);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr AppendDmlFn(IntPtr options, ref DmlDeviceOptions device);
+        [StructLayout(LayoutKind.Sequential)] private struct DmlDeviceOptions { public uint Preference, Filter; }
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr CreateTensorFn(IntPtr info, IntPtr data, UIntPtr bytes, long[] shape, UIntPtr rank, int type, out IntPtr value);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr GetDataFn(IntPtr value, out IntPtr data);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr CreateCpuInfoFn(int allocator, int memType, out IntPtr info);
@@ -36,6 +44,11 @@ namespace EmotionCat
         private readonly RunFn run;
         private readonly CreateOptionsFn createOptions;
         private readonly SetIntFn setGraphOptimization, setIntraThreads, setInterThreads;
+        private readonly SetIntFn setExecutionMode;
+        private readonly OptionsFn disableMemPattern;
+        private readonly ConfigFn addConfig;
+        private readonly ProfileFn enableProfiling;
+        private readonly ProviderApiFn getProviderApi;
         private readonly CreateTensorFn createTensor;
         private readonly GetDataFn getTensorData;
         private readonly CreateCpuInfoFn createCpuInfo;
@@ -64,6 +77,11 @@ namespace EmotionCat
             setGraphOptimization = Fn<SetIntFn>(slot(IdxSetGraphOptimization));
             setIntraThreads = Fn<SetIntFn>(slot(IdxSetIntraOpThreads));
             setInterThreads = Fn<SetIntFn>(slot(IdxSetInterOpThreads));
+            setExecutionMode = Fn<SetIntFn>(slot(IdxSetExecutionMode));
+            disableMemPattern = Fn<OptionsFn>(slot(IdxDisableMemPattern));
+            addConfig = Fn<ConfigFn>(slot(IdxAddSessionConfigEntry));
+            enableProfiling = Fn<ProfileFn>(slot(IdxEnableProfiling));
+            getProviderApi = Fn<ProviderApiFn>(slot(IdxGetExecutionProviderApi));
             createTensor = Fn<CreateTensorFn>(slot(IdxCreateTensorWithData));
             getTensorData = Fn<GetDataFn>(slot(IdxGetTensorMutableData));
             createCpuInfo = Fn<CreateCpuInfoFn>(slot(IdxCreateCpuMemoryInfo));
@@ -102,15 +120,27 @@ namespace EmotionCat
             return env;
         }
 
-        internal IntPtr CreateSession(IntPtr env, string modelPath, int threads)
+        internal IntPtr CreateSession(IntPtr env, string modelPath, int threads, string profilePath = null)
         {
             IntPtr options;
             Check(createOptions(out options));
             try
             {
                 Check(setGraphOptimization(options, 99 /* ORT_ENABLE_ALL */));
-                Check(setIntraThreads(options, threads));
+                Check(setIntraThreads(options, 1));
                 Check(setInterThreads(options, 1));
+                Check(setExecutionMode(options, 0 /* ORT_SEQUENTIAL: required by DirectML */));
+                Check(disableMemPattern(options));
+                Check(addConfig(options, "session.intra_op.allow_spinning", "0"));
+                Check(addConfig(options, "session.inter_op.allow_spinning", "0"));
+                Check(addConfig(options, "session.disable_cpu_ep_fallback", "1"));
+                IntPtr dmlApi;
+                Check(getProviderApi("DML", ApiVersion, out dmlApi));
+                if (dmlApi == IntPtr.Zero) throw new InvalidOperationException("DirectML GPU 런타임이 없습니다.");
+                var appendDml = Fn<AppendDmlFn>(Marshal.ReadIntPtr(dmlApi, 5 * IntPtr.Size));
+                var device = new DmlDeviceOptions { Preference = 1 /* HighPerformance */, Filter = 1 /* GPU only */ };
+                Check(appendDml(options, ref device));
+                if (!String.IsNullOrWhiteSpace(profilePath)) Check(enableProfiling(options, profilePath));
                 IntPtr session;
                 Check(createSession(env, modelPath, options, out session));
                 return session;

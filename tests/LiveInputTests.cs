@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
@@ -20,6 +20,8 @@ internal static class LiveInputTests
         using (var ready = new EventWaitHandle(false, EventResetMode.ManualReset, tag + ".ready"))
         using (var love = new EventWaitHandle(false, EventResetMode.AutoReset, tag + ".love"))
         using (var angry = new EventWaitHandle(false, EventResetMode.AutoReset, tag + ".angry"))
+        using (var profanity = new EventWaitHandle(false, EventResetMode.AutoReset, tag + ".profanity"))
+        using (var model = new EventWaitHandle(false, EventResetMode.AutoReset, tag + ".model"))
         using (var modifiers = new EventWaitHandle(false, EventResetMode.AutoReset, tag + ".modifiers"))
         using (var done = new EventWaitHandle(false, EventResetMode.AutoReset, tag + ".done"))
         using (var child = Process.Start(new ProcessStartInfo(Assembly.GetExecutingAssembly().Location, "\"" + tag + "\"") { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden }))
@@ -58,6 +60,15 @@ internal static class LiveInputTests
                         if (app.LastInputText != "화나") throw new Exception("auto Korean anger text mismatch: " + app.LastInputText);
                         AssertFrame(app, cat, "angry");
                         Console.WriteLine("PASS global keys -> 화나 -> Laya -> angry PNG; " + app.DecisionSummary);
+                        responses = app.ResponseCount; AllowSetForegroundWindow((uint)child.Id); profanity.Set();
+                        await Until(() => app.ResponseCount > responses, 5000, "profanity response");
+                        if (app.LastInputText != "시발" || !app.DecisionSummary.Contains("욕설 우선 규칙")) throw new Exception("profanity did not force anger");
+                        AssertFrame(app, cat, "angry");
+                        Console.WriteLine("PASS global Korean profanity -> mandatory angry PNG");
+                        responses = app.ResponseCount; AllowSetForegroundWindow((uint)child.Id); model.Set();
+                        await Until(() => app.ResponseCount > responses, 5000, "GPU contextual response");
+                        if (app.LastInputText != "안녕" || !app.DecisionSummary.Contains("directml")) throw new Exception("contextual input did not use the GPU model");
+                        Console.WriteLine("PASS global Korean input -> actual DirectML model; " + app.DecisionSummary);
                         Console.WriteLine("PASS native UpdateLayeredWindow succeeded for both emotions; fixture has no editable controls");
                     }
                     catch (Exception ex) { exitCode = 1; Console.WriteLine("FAIL " + ex.Message + " | " + app.InputStatus + " | " + app.ModelStatus); }
@@ -84,6 +95,8 @@ internal static class LiveInputTests
         using (var ready = EventWaitHandle.OpenExisting(tag + ".ready"))
         using (var love = EventWaitHandle.OpenExisting(tag + ".love"))
         using (var angry = EventWaitHandle.OpenExisting(tag + ".angry"))
+        using (var profanity = EventWaitHandle.OpenExisting(tag + ".profanity"))
+        using (var model = EventWaitHandle.OpenExisting(tag + ".model"))
         using (var modifiers = EventWaitHandle.OpenExisting(tag + ".modifiers"))
         using (var done = EventWaitHandle.OpenExisting(tag + ".done"))
         using (var window = new Form { Text = "EmotionCat input verification", Width = 420, Height = 110, TopMost = true, StartPosition = FormStartPosition.CenterScreen })
@@ -102,12 +115,19 @@ internal static class LiveInputTests
             timer.Tick += delegate
             {
                 if (done.WaitOne(0)) { window.Close(); return; }
-                string phrase = love.WaitOne(0) ? "tkfkdgo" : angry.WaitOne(0) ? "ghksk" : null;
-                if (phrase != null) { window.Activate(); SetForegroundWindow(window.Handle); foreach (char c in phrase) keys.Enqueue(Char.ToUpperInvariant(c)); }
+                string phrase = love.WaitOne(0) ? "tkfkdgo" : angry.WaitOne(0) ? "ghksk" : profanity.WaitOne(0) ? "tlqkf" : model.WaitOne(0) ? "dkssud" : null;
+                if (phrase != null) { window.Activate(); SetForegroundWindow(window.Handle); keys.Enqueue(13); foreach (char c in phrase) keys.Enqueue(Char.ToUpperInvariant(c)); }
                 if (modifiers.WaitOne(0)) { window.Activate(); SetForegroundWindow(window.Handle); keys.Enqueue(160); keys.Enqueue(162); keys.Enqueue(37); }
                 if (keys.Count > 0)
                 {
                     if (GetForegroundWindow() != window.Handle) { FocusFixture(window); return; }
+                    // TSF can reset the conversion mode when this fixture regains
+                    // focus after GPU startup. Establish it on the focused window.
+                    LoadKeyboardLayout("00000412", 1);
+                    ImmAssociateContext(window.Handle, inputContext);
+                    ImmSetOpenStatus(inputContext, true); ImmSetConversionStatus(inputContext, 1, 0);
+                    IntPtr ime = ImmGetDefaultIMEWnd(window.Handle);
+                    if (ime != IntPtr.Zero) { SendMessage(ime, 0x283, (IntPtr)6, (IntPtr)1); SendMessage(ime, 0x283, (IntPtr)2, (IntPtr)1); }
                     int key = keys.Dequeue();
                     var input = new[] { new INPUT { Type = 1, Data = new InputUnion { Keyboard = new KEYBDINPUT { Vk = (ushort)key, Scan = (ushort)MapVirtualKey((uint)key, 0) } } }, new INPUT { Type = 1, Data = new InputUnion { Keyboard = new KEYBDINPUT { Vk = (ushort)key, Scan = (ushort)MapVirtualKey((uint)key, 0), Flags = 2 } } } };
                     if (SendInput(2, input, Marshal.SizeOf(typeof(INPUT))) != 2) { window.Close(); return; }
@@ -140,6 +160,8 @@ internal static class LiveInputTests
     [DllImport("user32.dll")] static extern uint MapVirtualKey(uint code, uint type);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr LoadKeyboardLayout(string layout, uint flags);
     [DllImport("imm32.dll")] static extern IntPtr ImmCreateContext();
+    [DllImport("imm32.dll")] static extern IntPtr ImmGetDefaultIMEWnd(IntPtr window);
+    [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("imm32.dll")] static extern bool ImmDestroyContext(IntPtr context);
     [DllImport("imm32.dll")] static extern IntPtr ImmAssociateContext(IntPtr window, IntPtr context);
     [DllImport("imm32.dll")] static extern bool ImmSetConversionStatus(IntPtr context, uint conversion, uint sentence);
