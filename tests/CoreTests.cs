@@ -72,6 +72,13 @@ internal static class CoreTests
         return 0;
     }
 
+    private static object Get(Dictionary<string, object> item, string key)
+    {
+        object value;
+        if (!item.TryGetValue(key, out value)) throw new Exception("Golden case is missing '" + key + "'; keys: " + String.Join(",", item.Keys));
+        return value;
+    }
+
     /// The native tokenizer, sequence builder and ONNX run must reproduce tools/onnx/make_golden.py.
     private static void RunGolden(string path)
     {
@@ -81,24 +88,24 @@ internal static class CoreTests
         {
             foreach (var item in cases)
             {
-                string text = (string)item["text"];
+                string text = (string)Get(item, "text");
                 var emotions = new List<EmotionDefinition>();
-                foreach (Dictionary<string, object> e in (System.Collections.ArrayList)item["emotions"])
-                    emotions.Add(new EmotionDefinition((string)e["id"], (string)e["name"], (string)e["description"]));
-                LayaSequence sequence = engine.Build(text, emotions, (string)item["instructions"]);
-                var ids = ((System.Collections.ArrayList)item["input_ids"]).Cast<object>().Select(Convert.ToInt64).ToArray();
-                var markers = ((System.Collections.ArrayList)item["marker_pos"]).Cast<object>().Select(Convert.ToInt64).ToArray();
+                foreach (Dictionary<string, object> e in (System.Collections.ArrayList)Get(item, "emotions"))
+                    emotions.Add(new EmotionDefinition((string)Get(e, "id"), (string)Get(e, "name"), (string)Get(e, "description")));
+                LayaSequence sequence = engine.Build(text, emotions, (string)Get(item, "instructions"));
+                var ids = ((System.Collections.ArrayList)Get(item, "input_ids")).Cast<object>().Select(Convert.ToInt64).ToArray();
+                var markers = ((System.Collections.ArrayList)Get(item, "marker_pos")).Cast<object>().Select(Convert.ToInt64).ToArray();
                 Check(ids.SequenceEqual(sequence.InputIds), "Token ids differ for: " + text.Substring(0, Math.Min(30, text.Length)) + " (expected " + ids.Length + ", got " + sequence.InputIds.Length + ")");
                 Check(markers.SequenceEqual(sequence.MarkerPositions), "Option markers differ for: " + text.Substring(0, Math.Min(30, text.Length)));
                 var watch = System.Diagnostics.Stopwatch.StartNew();
                 double[] probabilities = engine.Classify(sequence);
                 times.Add(watch.Elapsed.TotalMilliseconds);
-                var expected = ((System.Collections.ArrayList)item["probabilities"]).Cast<object>().Select(Convert.ToDouble).ToArray();
+                var expected = ((System.Collections.ArrayList)Get(item, "probabilities")).Cast<object>().Select(Convert.ToDouble).ToArray();
                 for (int i = 0; i < expected.Length; i++)
                     Check(Math.Abs(expected[i] - probabilities[i]) <= 0.02, "Probability differs for: " + text.Substring(0, Math.Min(30, text.Length)));
                 var sorted = expected.OrderByDescending(v => v).ToArray();
                 int best = Array.IndexOf(probabilities, probabilities.Max());
-                Check(emotions[best].Id == (string)item["emotion"] || sorted[0] - sorted[1] < 0.05, "Emotion differs for: " + text.Substring(0, Math.Min(30, text.Length)));
+                Check(emotions[best].Id == (string)Get(item, "emotion") || sorted[0] - sorted[1] < 0.05, "Emotion differs for: " + text.Substring(0, Math.Min(30, text.Length)));
             }
         }
         times.Sort();
