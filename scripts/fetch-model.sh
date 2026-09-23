@@ -22,6 +22,11 @@ fetch() {
     fi
     printf 'Fetched %s\n' "$name"
 }
+if [[ $# -gt 1 ]]; then
+    shift
+    for name in "$@"; do fetch "$name"; done  # developer experiments: named files, no pinned digest
+    exit 0
+fi
 fetch laya-multilingual-int8.onnx "${MODEL_SHA256:?}"
 fetch tokenizer.bin "${TOKENIZER_SHA256:?}"
 fetch Laya-APACHE-2.0.txt
