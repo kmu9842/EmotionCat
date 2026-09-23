@@ -1,0 +1,115 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish (e.g. v1.1.0)"
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create draft release (build assets go here, not to Actions artifacts)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > notes.md <<'EOF'
+          ## 다운로드
+
+          | OS | 파일 |
+          |---|---|
+          | Windows 10/11 x64 | `EmotionCat-*-windows-x64.zip` — 압축을 풀고 `EmotionCat.exe` 실행 (.NET Framework 4.8 필요, Windows 10/11 기본 포함) |
+          | macOS 12+ (Apple Silicon / Intel) | `EmotionCat-*-macOS-universal.zip` — 압축을 풀고 `EmotionCat.app`을 `/Applications`로 이동 |
+
+          - Linux 데스크톱 앱은 아직 없습니다.
+          - 감정 모델(Laya)은 앱 설정의 **모델 설치**에서 별도로 내려받습니다(Python 3.10–3.13 필요).
+          - macOS 앱은 ad-hoc 서명이라 처음 실행 시 차단되면 `xattr -dr com.apple.quarantine /Applications/EmotionCat.app` 실행 후 다시 여세요.
+          - 각 ZIP 옆 `.sha256` 파일로 무결성을 확인할 수 있습니다.
+          EOF
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --draft --title "EmotionCat $TAG" --notes-file notes.md
+          fi
+
+  windows:
+    needs: draft
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node 24
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - name: Compile EmotionCat.exe and run core tests
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath EmotionCat.exe -Force
+          ./build.ps1
+          ./tests/run-core-tests.ps1
+      - name: Pack portable ZIP
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'EmotionCat'
+          New-Item -ItemType Directory -Force -Path "$stage/assets", "$stage/inference/licenses", "$stage/scripts" | Out-Null
+          Copy-Item EmotionCat.exe, EmotionCat.exe.config, 'Start EmotionCat.cmd', README.md -Destination $stage
+          Copy-Item assets/frames, assets/sprites -Destination "$stage/assets" -Recurse
+          Copy-Item assets/emotioncat.ico -Destination "$stage/assets"
+          Copy-Item inference/*.py, inference/requirements.txt, inference/README.md -Destination "$stage/inference"
+          Copy-Item inference/licenses/* -Destination "$stage/inference/licenses"
+          Copy-Item scripts/setup-laya.ps1 -Destination "$stage/scripts"
+          $zip = "EmotionCat-$env:TAG-windows-x64.zip"
+          Compress-Archive -Path $stage -DestinationPath $zip
+          (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() + "  $zip" | Out-File -Encoding ascii "$zip.sha256"
+      - name: Upload to draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" EmotionCat-*-windows-x64.zip* --clobber
+
+  macos:
+    needs: draft
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node 24
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - name: Compile Universal app and verify all 32 sprite mappings
+        run: bash macos/build.sh
+      - name: Pack application bundle
+        run: |
+          zip="EmotionCat-${TAG}-macOS-universal.zip"
+          ditto -c -k --sequesterRsrc --keepParent macos/build/EmotionCat.app "$zip"
+          shasum -a 256 "$zip" > "$zip.sha256"
+      - name: Upload to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" EmotionCat-*-macOS-universal.zip* --clobber
+
+  publish:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "$TAG" --draft=false --latest

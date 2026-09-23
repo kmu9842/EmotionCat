@@ -2,6 +2,16 @@
 
 참고 이미지 기반의 로컬 감정 봉고캣입니다. Windows는 .NET Framework 4.8/WinForms, macOS는 Swift/AppKit을 사용합니다. 브라우저 런타임이나 게임 엔진은 포함하지 않습니다. 모델은 별도 Python 프로세스에서 실행하는 **Laya multilingual 322M 하나**입니다.
 
+## 다운로드
+
+[Releases](https://github.com/kmu9842/EmotionCat/releases/latest)에서 OS별 ZIP을 받으세요.
+
+- **Windows 10/11 x64:** `EmotionCat-<버전>-windows-x64.zip` 압축을 쓰기 가능한 폴더에 풀고 `EmotionCat.exe`를 실행합니다.
+- **macOS 12+ (Universal):** `EmotionCat-<버전>-macOS-universal.zip` 압축을 풀어 `EmotionCat.app`을 `/Applications`로 옮깁니다. ad-hoc 서명이므로 차단되면 `xattr -dr com.apple.quarantine /Applications/EmotionCat.app`을 실행합니다.
+- **Linux:** 데스크톱 앱은 아직 없습니다.
+
+`v*` 태그를 push하면 `.github/workflows/release.yml`이 두 OS를 빌드해 릴리스로 게시합니다.
+
 ## Windows 실행
 
 EmotionCat.exe 또는 Start EmotionCat.cmd를 실행하세요. 고양이를 우클릭하거나 트레이 아이콘을 더블클릭하면 설정이 열립니다.
