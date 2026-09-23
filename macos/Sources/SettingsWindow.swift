@@ -9,7 +9,6 @@ final class SettingsWindow: NSWindowController, NSTableViewDataSource, NSTableVi
     let sprites: SpriteCache
     var onChanged: (() -> Void)?
     var onModelChanged: (() -> Void)?
-    var onInstall: (() -> Void)?
     var onPermissions: (() -> Void)?
     var onPreview: ((String) -> Void)?
     var onTest: ((String) -> Void)?
@@ -22,7 +21,7 @@ final class SettingsWindow: NSWindowController, NSTableViewDataSource, NSTableVi
     private let preview = NSImageView()
     private let pose = NSPopUpButton()
     private let poses = ["idle", "left", "right", "both"]
-    private let status = NSTextField(wrappingLabelWithString: "Laya를 준비하고 있습니다…")
+    private let status = NSTextField(wrappingLabelWithString: "감정 모델을 준비하고 있습니다…")
     private let inputStatus = NSTextField(wrappingLabelWithString: "")
     private let testInput = NSTextField()
     private let testResult = NSTextField(wrappingLabelWithString: "")
@@ -31,7 +30,6 @@ final class SettingsWindow: NSWindowController, NSTableViewDataSource, NSTableVi
     private let capture = NSButton(checkboxWithTitle: "입력으로 감정 바꾸기", target: nil, action: nil)
     private let size = NSSlider(value: 320, minValue: 180, maxValue: 700, target: nil, action: nil)
     private let sizeLabel = NSTextField(labelWithString: "320 px")
-    private let installButton = NSButton(title: "모델 설치 / 복구", target: nil, action: nil)
     private var loadedRow = -1
     private var isLoading = false
 
@@ -69,9 +67,7 @@ final class SettingsWindow: NSWindowController, NSTableViewDataSource, NSTableVi
         model.selectItem(at: 0)
         model.isEnabled = false
         model.target = self; model.action = #selector(changeModel)
-        installButton.target = self; installButton.action = #selector(installModel)
-        installButton.bezelStyle = .rounded
-        let modelRow = row([NSTextField(labelWithString: "모델"), model, installButton, button("다시 연결", #selector(restartModel))])
+        let modelRow = row([NSTextField(labelWithString: "모델"), model, button("다시 연결", #selector(restartModel))])
         status.font = .systemFont(ofSize: 12)
         status.textColor = .secondaryLabelColor
         status.maximumNumberOfLines = 3
@@ -183,11 +179,6 @@ final class SettingsWindow: NSWindowController, NSTableViewDataSource, NSTableVi
     func setStatus(_ value: String) { status.stringValue = value }
     func setInputStatus(_ value: String) { inputStatus.stringValue = value }
     func setTestResult(_ value: String) { testResult.stringValue = value }
-    func setInstalling(_ value: Bool) {
-        installButton.isEnabled = !value
-        model.isEnabled = false
-        installButton.title = value ? "설치 중…" : "모델 설치 / 복구"
-    }
 
     func numberOfRows(in tableView: NSTableView) -> Int { store.settings.emotions.count }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -316,7 +307,6 @@ final class SettingsWindow: NSWindowController, NSTableViewDataSource, NSTableVi
         changed()
     }
     @objc private func restartModel() { onModelChanged?() }
-    @objc private func installModel() { commitEditor(); onInstall?() }
     @objc private func changeCapture() { store.settings.captureText = capture.state == .on; changed() }
     @objc private func changeSize() {
         store.settings.size = size.doubleValue.rounded()

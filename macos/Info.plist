@@ -7,9 +7,9 @@
     <key>CFBundleIdentifier</key><string>com.emotioncat.desktop</string>
     <key>CFBundleExecutable</key><string>EmotionCat</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.2.0</string>
-    <key>CFBundleVersion</key><string>3</string>
-    <key>LSMinimumSystemVersion</key><string>12.0</string>
+    <key>CFBundleShortVersionString</key><string>2.0.0</string>
+    <key>CFBundleVersion</key><string>4</string>
+    <key>LSMinimumSystemVersion</key><string>13.4</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSInputMonitoringUsageDescription</key><string>키를 누를 때 고양이의 양발을 움직입니다.</string>

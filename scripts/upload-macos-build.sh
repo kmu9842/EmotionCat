@@ -18,7 +18,7 @@ Source commit: $BUILD_SHA
 Build: ${BUILD_RUN_URL:-local}
 
 Compilation, code-signature validation, and all 32 sprite mappings passed.
-The model is installed separately on first setup. GUI input and MPS inference still require testing on a physical Mac.
+The Laya ONNX model and ONNX Runtime are bundled; no Python or download is needed.
 EOF
 (cd macos/build && shasum -a 256 EmotionCat-macOS.zip > EmotionCat-macOS.zip.sha256)
 
