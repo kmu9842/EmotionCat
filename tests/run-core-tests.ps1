@@ -1,4 +1,4 @@
-param([switch]$Integration)
+﻿param([switch]$Integration, [string]$Golden = '')
 
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $PSScriptRoot
@@ -10,16 +10,21 @@ if (-not (Test-Path -LiteralPath $compiler)) {
     throw '.NET Framework 4.8 C# compiler was not found.'
 }
 
-# Integration uses the real local worker and must resolve inference/ from app root.
+# Golden/integration runs need onnxruntime.dll and model/ next to the test executable (app root).
 $testExecutable = Join-Path $projectDirectory ('EmotionCat.CoreTests.' + [Guid]::NewGuid().ToString('N') + '.exe')
 try {
     & $compiler /nologo /target:exe /platform:x64 "/out:$testExecutable" /r:System.Web.Extensions.dll /r:System.Drawing.dll `
         (Join-Path $projectDirectory 'src\AppSettings.cs') `
         (Join-Path $projectDirectory 'src\LayaClient.cs') `
+        (Join-Path $projectDirectory 'src\LayaEngine.cs') `
+        (Join-Path $projectDirectory 'src\LayaTokenizer.cs') `
+        (Join-Path $projectDirectory 'src\OnnxRuntime.cs') `
         (Join-Path $PSScriptRoot 'CoreTests.cs')
     if ($LASTEXITCODE -ne 0) { throw 'Core test compilation failed.' }
-    if ($Integration) { & $testExecutable --integration }
-    else { & $testExecutable }
+    $testArgs = @()
+    if ($Golden) { $testArgs += @('--golden', $Golden) }
+    if ($Integration) { $testArgs += '--integration' }
+    & $testExecutable @testArgs
     if ($LASTEXITCODE -ne 0) { throw 'Core tests failed.' }
 }
 finally {

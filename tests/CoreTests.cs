@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using EmotionCat;
@@ -65,8 +66,55 @@ internal static class CoreTests
         response.Remove("confidence");
         MustReject(() => LayaClient.ParseClassification(response, defaults.Emotions), "Missing confidence must be rejected.");
         Console.WriteLine("Core tests passed: " + checks);
+        int golden = Array.IndexOf(args, "--golden");
+        if (golden >= 0) RunGolden(args[golden + 1]);
         if (Array.IndexOf(args, "--integration") >= 0) RunIntegration().GetAwaiter().GetResult();
         return 0;
+    }
+
+    private static object Get(Dictionary<string, object> item, string key)
+    {
+        object value;
+        if (!item.TryGetValue(key, out value)) throw new Exception("Golden case is missing '" + key + "'; keys: " + String.Join(",", item.Keys));
+        return value;
+    }
+
+    /// Exact token ids / option markers for every golden case, and >= 80% emotion accuracy on labeled cases.
+    /// Probabilities are not compared exactly: int8 kernels differ slightly per CPU (see tools/onnx/make_golden.py).
+    private static void RunGolden(string path)
+    {
+        var cases = new JavaScriptSerializer { MaxJsonLength = Int32.MaxValue }.Deserialize<List<Dictionary<string, object>>>(System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8));
+        var times = new List<double>();
+        int labeled = 0, correct = 0;
+        using (var engine = new LayaEngine(LayaEngine.ModelDirectory, 2))
+        {
+            foreach (var item in cases)
+            {
+                string text = (string)Get(item, "text");
+                string label = text.Substring(0, Math.Min(30, text.Length));
+                var emotions = new List<EmotionDefinition>();
+                foreach (Dictionary<string, object> e in (System.Collections.ArrayList)Get(item, "emotions"))
+                    emotions.Add(new EmotionDefinition((string)Get(e, "id"), (string)Get(e, "name"), (string)Get(e, "description")));
+                LayaSequence sequence = engine.Build(text, emotions, (string)Get(item, "instructions"));
+                var ids = ((System.Collections.ArrayList)Get(item, "input_ids")).Cast<object>().Select(Convert.ToInt64).ToArray();
+                var markers = ((System.Collections.ArrayList)Get(item, "marker_pos")).Cast<object>().Select(Convert.ToInt64).ToArray();
+                Check(ids.SequenceEqual(sequence.InputIds), "Token ids differ for: " + label + " (expected " + ids.Length + ", got " + sequence.InputIds.Length + ")");
+                Check(markers.SequenceEqual(sequence.MarkerPositions), "Option markers differ for: " + label);
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                double[] probabilities = engine.Classify(sequence);
+                times.Add(watch.Elapsed.TotalMilliseconds);
+                Check(Math.Abs(probabilities.Sum() - 1) < 1e-6 && probabilities.All(v => v >= 0), "Invalid probabilities for: " + label);
+                object expected;
+                if (item.TryGetValue("expected", out expected))
+                {
+                    labeled++;
+                    if (emotions[Array.IndexOf(probabilities, probabilities.Max())].Id == (string)expected) correct++;
+                }
+            }
+        }
+        times.Sort();
+        Console.WriteLine("Golden ONNX: " + cases.Count + " sequences exact, accuracy " + correct + "/" + labeled + ", median " + times[times.Count / 2].ToString("0.0") + " ms");
+        Check(correct * 10 >= labeled * 8, "Emotion accuracy fell below 80%.");
     }
 
     private static async Task RunIntegration()

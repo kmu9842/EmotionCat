@@ -3,11 +3,15 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["macos/**", "assets/frames/**", "inference/**", "scripts/setup-laya.sh", "scripts/upload-macos-build.sh", ".github/workflows/macos.yml"]
+    paths: ["macos/**", "assets/frames/**", "tests/onnx-golden.json", "scripts/fetch-model.sh", "scripts/upload-macos-build.sh", ".github/workflows/macos.yml"]
   pull_request:
-    paths: ["macos/**", "assets/frames/**", "inference/**", "scripts/setup-laya.sh", "scripts/upload-macos-build.sh", ".github/workflows/macos.yml"]
+    paths: ["macos/**", "assets/frames/**", "tests/onnx-golden.json", "scripts/fetch-model.sh", "scripts/upload-macos-build.sh", ".github/workflows/macos.yml"]
 permissions:
   contents: read
+env:
+  MODEL_RELEASE: model-v2
+  MODEL_SHA256: 9f31d5cbd39cd3795becdf209f0934b40acc3840f1d9e8bd777d05f12158567e
+  TOKENIZER_SHA256: 32fa4053b15e4ea0791340f1092e93eb682b158d7c35972c933f46ab03bc22b4
 concurrency:
   group: macos-${{ github.ref }}
   cancel-in-progress: true
@@ -20,7 +24,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node 24
         with:
           persist-credentials: false
-      - name: Compile both architectures and verify all 32 sprite mappings
+      - name: Fetch the bundled model (SHA-256 pinned)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash scripts/fetch-model.sh "$RUNNER_TEMP/model"
+      - name: Compile both architectures, verify sprites and golden ONNX inference
+        env:
+          EMOTIONCAT_MODEL_DIR: ${{ runner.temp }}/model
         run: bash macos/build.sh
       - name: Pack application bundle with signature and executable modes
         run: ditto -c -k --sequesterRsrc --keepParent macos/build/EmotionCat.app macos/build/EmotionCat-macOS.zip
