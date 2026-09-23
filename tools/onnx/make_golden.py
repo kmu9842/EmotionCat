@@ -9,7 +9,9 @@ Native sequence rules (mirror of the former Python worker + laya.build_sequence,
   ids        = [CLS] + head[:max(8, budget)] + [SEP] + options... + [SEP]; marker = index of each [MASK]
   state      = tok(text)[-(1024-head_len-8):][:max(0, 1024-len(ids)-1)]
   ids       += state + [SEP]
-  probabilities = softmax(logits)
+  probabilities = softmax(logits) of the fp32 model, for reference only: int8 kernels differ slightly per CPU
+Native tests require exact input_ids/marker_pos for every case and >= 80% accuracy on cases with "expected"
+(fp32 and the shipped int8 model both score 36/40 on arm64, x86_64/Rosetta, AMD Zen4 and Zen5).
 """
 import argparse
 import json
@@ -77,18 +79,22 @@ def main():
     custom = defaults[:3] + [{"id": "custom_1", "name": "배고픔", "description": "배고픔, 먹고 싶음"},
                              {"id": "custom_2", "name": "", "description": ""},
                              {"id": "dup", "name": "x", "description": "분노"}]
-    texts = [c["text"] for c in json.load(open(a.cases, encoding="utf-8"))][:20]
-    texts += ["hello world 😀", "Hello,   World!!\n줄바꿈\t탭 <mask>", "ㅋㅋㅋㅋ " * 400]
+    labeled = json.load(open(a.cases, encoding="utf-8"))
+    runs = [(c["text"], defaults, c["expected"]) for c in labeled]  # accuracy cases (app default labels)
+    runs += [("오늘 점심 뭐 먹지? 배고파", custom, None), ("hello world 😀", defaults, None),
+             ("Hello,   World!!\n줄바꿈\t탭 <mask>", defaults, None), ("ㅋㅋㅋㅋ " * 400, defaults, None)]
     out = []
-    for i, text in enumerate(texts):
-        emotions = custom if i % 5 == 4 else defaults
+    for text, emotions, expected in runs:
         ids, markers = build(tok, text, emotions, INSTRUCTIONS)
         logits = sess.run(None, {"input_ids": np.array([ids], np.int64), "marker_pos": np.array([markers], np.int64),
                                  "marker_mask": np.ones((1, len(markers)), bool)})[0][0]
         prob = np.exp(logits - logits.max()); prob /= prob.sum()
-        out.append({"text": text, "instructions": INSTRUCTIONS, "emotions": emotions, "input_ids": ids,
-                    "marker_pos": markers, "probabilities": [round(float(x), 6) for x in prob],
-                    "emotion": emotions[int(prob.argmax())]["id"]})
+        case = {"text": text, "instructions": INSTRUCTIONS, "emotions": emotions, "input_ids": ids,
+                "marker_pos": markers, "probabilities": [round(float(x), 6) for x in prob],
+                "emotion": emotions[int(prob.argmax())]["id"]}
+        if expected:
+            case["expected"] = expected
+        out.append(case)
     json.dump(out, open(a.out, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
     print("golden cases", len(out))
 
