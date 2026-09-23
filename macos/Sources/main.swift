@@ -57,7 +57,10 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         else { preferences.setStatus("감정 인식이 꺼져 있습니다. Laya 메모리를 사용하지 않습니다.") }
         // An unconfigured install must expose the one-click model setup and permissions.
         let modelMarker = store.directory.appendingPathComponent("inference/models/\(store.settings.model)/emotioncat-model.json")
-        if !FileManager.default.fileExists(atPath: modelMarker.path) { preferences.open() }
+        if !FileManager.default.fileExists(atPath: modelMarker.path) {
+            preferences.open()
+            if store.settings.captureText { installModel() }
+        }
     }
 
     private func createTray() {

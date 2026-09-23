@@ -100,7 +100,7 @@ namespace EmotionCat
             catch (Exception ex)
             {
                 string message = ex is System.ComponentModel.Win32Exception
-                    ? "Python을 실행할 수 없습니다. 설정에서 Laya 설치를 실행하세요."
+                    ? "감정 모델이 설치되지 않았습니다. 설정에서 모델 설치를 눌러 주세요."
                     : ShortError(ex.Message);
                 SetStatus(message, false, current);
                 ReleaseFailedSession(current);
