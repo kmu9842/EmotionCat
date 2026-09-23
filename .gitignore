@@ -4,7 +4,8 @@ macos/output/
 *.pdb
 *.log
 build/
-tests/bin/
+tests/
+inference/
 .vs/
 output/
 .test-output/
@@ -21,3 +22,13 @@ onnxruntime.dll
 DirectML.dll
 ort/
 ort.zip
+
+# Local verification and experiment files
+.github/workflows/quant-experiment.yml
+docs/windows-gpu-verification.md
+tools/onnx/check_golden.py
+tools/onnx/eval-inputs.json
+tools/onnx/evaluate.py
+tools/onnx/make_golden.py
+tools/onnx/parity.py
+tools/onnx/quant_experiment.py

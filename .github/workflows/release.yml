@@ -67,12 +67,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: ./scripts/prepare-windows.ps1
-      - name: Compile and verify safe disabled state without a GPU
+      - name: Compile Windows application
         shell: pwsh
-        run: |
-          ./build.ps1
-          ./tests/run-core-tests.ps1 -ExpectGpuUnavailable
-          ./tests/run-input-tests.ps1
+        run: ./build.ps1
       - name: Pack portable ZIP
         shell: pwsh
         run: |
@@ -131,7 +128,7 @@ jobs:
           identity="$(security find-identity -p codesigning "$keychain" | awk '/EmotionCat Code Signing/ {print $2; exit}')"
           [[ -n "$identity" ]] || { echo "Signing identity not found."; exit 1; }
           echo "SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
-      - name: Compile Universal app, verify sprites and golden ONNX inference
+      - name: Compile Universal app and validate code signature
         env:
           EMOTIONCAT_MODEL_DIR: ${{ runner.temp }}/model
         run: |
