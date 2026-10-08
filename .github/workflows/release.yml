@@ -38,13 +38,18 @@ jobs:
 
           - Linux 데스크톱 앱은 아직 없습니다.
           - 모델과 실행 라이브러리가 앱에 포함됩니다. **추가 다운로드나 Python 설치 없이** 동작합니다. Windows는 FP16·DirectML GPU 전용이며, GPU를 사용할 수 없으면 경고 후 감정 분석을 끕니다. CPU 추론으로 전환하지 않습니다.
-          - Windows 한국어 감정 반응을 확장했습니다. 욕설·초성·띄어 쓴 변형은 화남을 우선하고, 구어체·줄임말·자모·이모티콘과 감정 없는 질문을 구분합니다. 기본 분류 지시문도 한국어 문맥에 맞게 개선했습니다.
-          - Windows 설치 용량은 약 698MB입니다. 이번 GPU 전환과 한국어 개선은 Windows에 적용되며, macOS는 기존 구현을 유지합니다.
+          - Windows와 macOS 모두 입력 수집 시작부터 1초를 폐기 기한으로 사용합니다. 새 입력과 대기열 이동으로 기한을 연장하지 않으며, 원문 진단 표시·보관을 제거했습니다.
+          - 비밀번호 필드 판별은 제거했습니다. 입력 내용은 내장 모델로만 분석하며 ONNX Runtime 텔레메트리는 끄고, 네트워크 파일 경로를 거부합니다.
+          - 감정 인식은 기본적으로 꺼져 있습니다. 기존 설정도 이번 업데이트에서 꺼지므로, 설정에서 직접 켜 주세요.
           - Windows 앱은 공인 코드 서명을 포함하지 않습니다. macOS는 인증서 없는 ad-hoc 서명으로 빌드하며 Apple 공증은 포함하지 않습니다.
           - macOS는 처음 실행 때 **입력 모니터링** 권한이 필요합니다. 감정 인식은 설정에서 직접 켜며, 입력 원문은 최대 1초 후 폐기합니다.
           - 각 ZIP 옆 `.sha256` 파일로 무결성을 확인할 수 있습니다.
+          - 1초 폐기는 앱이 소유한 버퍼·참조의 수명 정책이며 OS·런타임 내부 복사본의 물리적 삭제까지 보장하지 않습니다. 자세한 범위는 저장소의 `docs/security.md`에 설명되어 있습니다.
           EOF
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" --json isDraft --jq '.isDraft' > release-state 2>/dev/null; then
+            [[ "$(cat release-state)" == true ]] || { echo 'Refusing to replace a published release.' >&2; exit 1; }
+            gh release edit "$TAG" --notes-file notes.md
+          else
             gh release create "$TAG" --verify-tag --draft --title "EmotionCat $TAG" --notes-file notes.md
           fi
 
@@ -78,6 +83,8 @@ jobs:
           Copy-Item EmotionCat.exe, EmotionCat.exe.config, 'Start EmotionCat.cmd', README.md, onnxruntime.dll, DirectML.dll -Destination $stage
           Copy-Item assets/frames, assets/sprites -Destination "$stage/assets" -Recurse
           Copy-Item assets/emotioncat.ico -Destination "$stage/assets"
+          New-Item -ItemType Directory -Force -Path "$stage/docs" | Out-Null
+          Copy-Item docs/security.md -Destination "$stage/docs"
           New-Item -ItemType Directory -Force -Path "$stage/model" | Out-Null
           Copy-Item model/laya-multilingual-gpu.onnx, model/tokenizer.bin -Destination "$stage/model"
           Copy-Item licenses -Destination $stage -Recurse
