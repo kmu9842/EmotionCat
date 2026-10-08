@@ -1,4 +1,7 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
+
+[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.ApplicationDirectory | DllImportSearchPath.System32)]
 
 [assembly: AssemblyTitle("EmotionCat")]
 [assembly: AssemblyProduct("EmotionCat")]

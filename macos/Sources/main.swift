@@ -15,7 +15,7 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
     private var revision = 0
     private var session = 0
     private var inferenceBusy = false
-    private var pending: (text: String, test: Bool, revision: Int)?
+    private var pending: (text: TransientText, test: Bool, revision: Int)?
 
     init(resources: URL) {
         store = SettingsStore(resources: resources)
@@ -31,9 +31,12 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         keyboard = KeyboardMonitor(onStroke: { [weak self] in
             guard let self = self, !self.paused else { return }
             self.cat.cat.tap()
-        }, onText: { [weak self] text in self?.enqueue(text, test: false) }, onStatus: { [weak self] status in
+        }, onText: { [weak self] text in
+            guard let self = self else { text.erase(); return }
+            self.enqueue(text, test: false)
+        }, onStatus: { [weak self] status in
             self?.preferences.setInputStatus(status)
-        })
+        }, onInvalidated: { [weak self] in self?.dropCapturedInput() })
         cat.cat.onOpenSettings = { [weak self] in self?.openSettings() }
         cat.onPositionChanged = { [weak self] in self?.saveSettings() }
         preferences.onChanged = { [weak self] in self?.settingsChanged() }
@@ -42,7 +45,7 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         preferences.onPreview = { [weak self] id in self?.showEmotion(id) }
         preferences.onTap = { [weak self] in self?.demoPaws() }
         preferences.onSnap = { [weak self] in self?.cat.snapToDock() }
-        preferences.onTest = { [weak self] text in self?.enqueue(text, test: true) }
+        preferences.onTest = { [weak self] text in self?.enqueue(TransientText(String(text.suffix(600))), test: true) }
         worker.onStatus = { [weak self] value in
             self?.preferences.setStatus(value)
             self?.runPending()
@@ -108,7 +111,12 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         }
     }
     private func invalidateInference() {
-        session += 1; revision += 1; pending = nil; inferenceBusy = false
+        session += 1; revision += 1; pending?.text.erase(); pending = nil; inferenceBusy = false
+        worker.cancelClassification()
+    }
+    private func dropCapturedInput() {
+        revision += 1; pending?.text.erase(); pending = nil
+        worker.cancelClassification()
     }
     private func restartModel() {
         invalidateInference()
@@ -116,17 +124,20 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         if !paused && store.settings.captureText { worker.start(model: store.settings.model) }
         else if !paused { preferences.setStatus("감정 인식이 꺼져 있습니다. Laya 메모리를 사용하지 않습니다.") }
     }
-    private func enqueue(_ text: String, test: Bool) {
+    private func enqueue(_ text: TransientText, test: Bool) {
         guard !paused else {
+            text.erase()
             if test { preferences.setTestResult("메뉴 막대에서 다시 시작을 눌러 주세요.") }
             return
         }
-        if test && !worker.isReady {
-            preferences.setTestResult("감정 모델을 준비하고 있습니다. 잠시 후 다시 시도해 주세요.")
+        if !worker.isReady {
+            text.erase()
+            if test { preferences.setTestResult("감정 모델을 준비하고 있습니다. 잠시 후 다시 시도해 주세요.") }
             return
         }
         revision += 1
-        pending = (String(text.suffix(600)), test, revision)
+        pending?.text.erase()
+        pending = (text, test, revision)
         runPending()
     }
     private func runPending() {
@@ -134,19 +145,20 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         pending = nil
         inferenceBusy = true
         let currentSession = session
-        worker.classify(text: job.text, emotions: store.settings.emotions, instructions: store.settings.classificationPrompt, source: job.test ? "manual" : "typing") { [weak self] result in
+        let jobRevision = job.revision, isTest = job.test
+        worker.classify(text: job.text, emotions: store.settings.emotions, instructions: store.settings.classificationPrompt) { [weak self] result in
             guard let self = self, self.session == currentSession else { return }
             self.inferenceBusy = false
-            if job.revision == self.revision {
+            if jobRevision == self.revision {
                 switch result {
                 case .success(let id):
                     self.showEmotion(id)
-                    if job.test {
+                    if isTest {
                         let name = self.store.settings.emotions.first(where: { $0.id == id })?.name ?? id
                         self.preferences.setTestResult("Laya가 고른 감정: \(name)")
                     }
                 case .failure(let error):
-                    if job.test { self.preferences.setTestResult(error.localizedDescription) }
+                    if isTest { self.preferences.setTestResult(error.localizedDescription) }
                     else { self.preferences.setStatus(error.localizedDescription) }
                 }
             }
@@ -172,6 +184,7 @@ final class EmotionCatApp: NSObject, NSApplicationDelegate {
         }
     }
     func applicationWillTerminate(_ notification: Notification) {
+        invalidateInference()
         keyboard?.stop()
         worker.stop()
         emotionReset?.cancel()

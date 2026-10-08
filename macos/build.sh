@@ -86,7 +86,8 @@ for file in "${model_files[@]}"; do cp "$model_dir/$file" "$app/Contents/Resourc
 if [[ -f "$model_dir/Laya-APACHE-2.0.txt" ]]; then cp "$model_dir/Laya-APACHE-2.0.txt" "$app/Contents/Resources/licenses/"; fi
 chmod +x "$app/Contents/MacOS/EmotionCat"
 /usr/bin/plutil -lint "$app/Contents/Info.plist"
-/usr/bin/codesign --force --sign "${SIGNING_IDENTITY:--}" "$app/Contents/Frameworks/$ort_dylib"
-/usr/bin/codesign --force --sign "${SIGNING_IDENTITY:--}" "$app"
+# Local ad-hoc signatures need no certificate, account, or signing service.
+/usr/bin/codesign --force --sign - --timestamp=none "$app/Contents/Frameworks/$ort_dylib"
+/usr/bin/codesign --force --sign - --timestamp=none "$app"
 /usr/bin/codesign --verify --strict "$app"
 printf '\nBuilt: %s\nOpen with: open "%s"\n' "$app" "$app"

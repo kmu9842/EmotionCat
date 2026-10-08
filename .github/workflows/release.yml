@@ -40,8 +40,8 @@ jobs:
           - 모델과 실행 라이브러리가 앱에 포함됩니다. **추가 다운로드나 Python 설치 없이** 동작합니다. Windows는 FP16·DirectML GPU 전용이며, GPU를 사용할 수 없으면 경고 후 감정 분석을 끕니다. CPU 추론으로 전환하지 않습니다.
           - Windows 한국어 감정 반응을 확장했습니다. 욕설·초성·띄어 쓴 변형은 화남을 우선하고, 구어체·줄임말·자모·이모티콘과 감정 없는 질문을 구분합니다. 기본 분류 지시문도 한국어 문맥에 맞게 개선했습니다.
           - Windows 설치 용량은 약 698MB입니다. 이번 GPU 전환과 한국어 개선은 Windows에 적용되며, macOS는 기존 구현을 유지합니다.
-          - macOS 앱은 Apple 공증을 받지 않은 자체 서명 앱이라, 처음 실행 시 차단되면 `xattr -dr com.apple.quarantine /Applications/EmotionCat.app` 실행 후 다시 여세요.
-          - macOS는 처음 실행 때 **입력 모니터링**·**손쉬운 사용** 권한을 허용해야 고양이가 키 입력에 반응합니다. 같은 인증서로 서명하므로 업데이트 후에도 권한이 유지됩니다.
+          - Windows 앱은 공인 코드 서명을 포함하지 않습니다. macOS는 인증서 없는 ad-hoc 서명으로 빌드하며 Apple 공증은 포함하지 않습니다.
+          - macOS는 처음 실행 때 **입력 모니터링** 권한이 필요합니다. 감정 인식은 설정에서 직접 켜며, 입력 원문은 최대 1초 후 폐기합니다.
           - 각 ZIP 옆 `.sha256` 파일로 무결성을 확인할 수 있습니다.
           EOF
           if ! gh release view "$TAG" >/dev/null 2>&1; then
@@ -107,28 +107,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           bash scripts/fetch-model.sh "$RUNNER_TEMP/model"
-      - name: Import the stable signing certificate (keeps macOS permissions across updates)
-        env:
-          P12: ${{ secrets.MACOS_SIGNING_P12 }}
-          P12_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
-        run: |
-          if [[ -z "$P12" ]]; then
-            echo "::warning::MACOS_SIGNING_P12 is not set; using ad-hoc signing (users must re-grant permissions after each update)."
-            exit 0
-          fi
-          keychain="$RUNNER_TEMP/signing.keychain-db"
-          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
-          security create-keychain -p ci "$keychain"
-          security set-keychain-settings -lut 3600 "$keychain"
-          security unlock-keychain -p ci "$keychain"
-          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign >/dev/null
-          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$keychain" >/dev/null
-          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
-          rm -f "$RUNNER_TEMP/signing.p12"
-          identity="$(security find-identity -p codesigning "$keychain" | awk '/EmotionCat Code Signing/ {print $2; exit}')"
-          [[ -n "$identity" ]] || { echo "Signing identity not found."; exit 1; }
-          echo "SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
-      - name: Compile Universal app and validate code signature
+      - name: Compile Universal app with certificate-free ad-hoc signing
         env:
           EMOTIONCAT_MODEL_DIR: ${{ runner.temp }}/model
         run: |

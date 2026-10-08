@@ -67,7 +67,7 @@ namespace EmotionCat
                 LayaEngine loaded = await Task.Run(() =>
                 {
                     var created = createEngine == null ? new LayaEngine(LayaEngine.ModelDirectory, 1) : createEngine();
-                    try { created.Classify(created.Build("안녕하세요", emotions, prompt)); }  // warm up kernels without user text
+                    try { using (var sequence = created.Build("안녕하세요", emotions, prompt)) created.Classify(sequence); }
                     catch { created.Dispose(); throw; }
                     return created;
                 });
@@ -96,8 +96,9 @@ namespace EmotionCat
             return ClassifyAsync(text, emotions, AppSettings.DefaultPrompt, "manual");
         }
 
-        public async Task<ClassificationResult> ClassifyAsync(string text, List<EmotionDefinition> emotions, string instructions, string source = "manual")
+        public async Task<ClassificationResult> ClassifyAsync(string text, List<EmotionDefinition> emotions, string instructions, string source = "manual", long expiresAt = 0)
         {
+            if (expiresAt == 0) expiresAt = Stopwatch.GetTimestamp() + Stopwatch.Frequency;
             if (!ready || String.IsNullOrWhiteSpace(text)) return null;
             if (emotions == null || emotions.Count < 2 || emotions.Count > 16)
                 throw new ArgumentException("감정은 2~16개를 설정하세요.", "emotions");
@@ -105,45 +106,64 @@ namespace EmotionCat
             if (Interlocked.CompareExchange(ref classifying, 1, 0) != 0) return null;
             LayaEngine current;
             CancellationTokenSource currentSession;
+            PreparedInput prepared = null;
             lock (gate) { current = engine; currentSession = session; }
             try
             {
                 if (current == null || currentSession == null || currentSession.IsCancellationRequested) return null;
-                string clipped = text.Length > 1000 ? text.Substring(text.Length - 1000) : text;
                 var choices = emotions.ToList();
-                string prompt = instructions.Trim();
                 Interlocked.Increment(ref requests);
                 var watch = Stopwatch.StartNew();
-                bool profanity = KoreanEmotionRules.HasProfanity(clipped);
-                if (profanity && !choices.Any(e => e.Id == "angry")) throw new InvalidOperationException("욕설에 사용할 화남 표정이 없습니다.");
-                string explicitEmotion = KoreanEmotionRules.ExplicitEmotion(clipped);
-                if (!choices.Any(e => e.Id == explicitEmotion)) explicitEmotion = null;
-                double[] probabilities = explicitEmotion != null ? choices.Select(e => e.Id == explicitEmotion ? 1.0 : 0.0).ToArray()
-                    : await Task.Run(() => current.Classify(current.Build(KoreanEmotionRules.PrepareText(clipped), choices, prompt)));
+                // This synchronous helper is the only inference scope with plaintext.
+                // The asynchronous native run retains only token IDs, erased in finally.
+                prepared = PrepareInput(current, text, choices, instructions.Trim()); text = null;
+                if (Stopwatch.GetTimestamp() >= expiresAt) return null;
+                if (prepared.Sequence != null) prepared.Sequence.ExpiresAt = expiresAt;
+                double[] probabilities = prepared.ExplicitEmotion != null ? choices.Select(e => e.Id == prepared.ExplicitEmotion ? 1.0 : 0.0).ToArray()
+                    : await Task.Run(() => current.Classify(prepared.Sequence));
                 watch.Stop();
-                if (currentSession.IsCancellationRequested) return null;
+                if (currentSession.IsCancellationRequested || Stopwatch.GetTimestamp() >= expiresAt) return null;
                 int best = 0;
                 for (int i = 1; i < probabilities.Length; i++) if (probabilities[i] > probabilities[best]) best = i;
                 var byId = new Dictionary<string, double>();
                 for (int i = 0; i < probabilities.Length && i < choices.Count; i++) byId[choices[i].Id] = Math.Round(probabilities[i], 4);
                 Interlocked.Increment(ref successes);
                 double elapsed = Math.Round(watch.Elapsed.TotalMilliseconds, 1);
-                Diagnostics = "요청 " + requests + " · 완료 " + successes + " · 최근 " + clipped.Length + "자 / " + elapsed.ToString(CultureInfo.InvariantCulture) + " ms";
+                Diagnostics = "요청 " + requests + " · 완료 " + successes + " · 최근 " + prepared.CharacterCount + "자 / " + elapsed.ToString(CultureInfo.InvariantCulture) + " ms";
                 var handler = HealthChanged; if (handler != null) handler();
                 return new ClassificationResult
                 {
                     Emotion = choices[best].Id, RawEmotion = choices[best].Id, Confidence = Math.Round(LayaEngine.Confidence(probabilities), 4),
-                    ElapsedMs = elapsed, Probabilities = byId, Device = "directml", Model = "multilingual", Source = profanity ? "profanity-rule" : explicitEmotion != null ? "korean-rule" : "gpu-model"
+                    ElapsedMs = elapsed, Probabilities = byId, Device = "directml", Model = "multilingual", Source = prepared.Profanity ? "profanity-rule" : prepared.ExplicitEmotion != null ? "korean-rule" : "gpu-model"
                 };
             }
             catch (ObjectDisposedException) { return null; }
+            catch (OperationCanceledException) { return null; }
             catch (Exception ex)
             {
                 if (currentSession != null && !currentSession.IsCancellationRequested)
                     DisableInference("GPU 분석에 실패하여 감정 분석을 껐습니다. 설정에서 GPU 연결을 다시 시도해 주세요.\n" + ShortError(ex.Message), currentSession);
                 return null;
             }
-            finally { Interlocked.Exchange(ref classifying, 0); }
+            finally { text = null; if (prepared != null && prepared.Sequence != null) prepared.Sequence.Dispose(); Interlocked.Exchange(ref classifying, 0); }
+        }
+
+        sealed class PreparedInput
+        {
+            public LayaSequence Sequence;
+            public string ExplicitEmotion;
+            public bool Profanity;
+            public int CharacterCount;
+        }
+        static PreparedInput PrepareInput(LayaEngine engine, string text, List<EmotionDefinition> choices, string prompt)
+        {
+            string clipped = text.Length > 1000 ? text.Substring(text.Length - 1000) : text;
+            var result = new PreparedInput { CharacterCount = clipped.Length, Profanity = KoreanEmotionRules.HasProfanity(clipped) };
+            if (result.Profanity && !choices.Any(e => e.Id == "angry")) throw new InvalidOperationException("욕설에 사용할 화남 표정이 없습니다.");
+            result.ExplicitEmotion = KoreanEmotionRules.ExplicitEmotion(clipped);
+            if (!choices.Any(e => e.Id == result.ExplicitEmotion)) result.ExplicitEmotion = null;
+            if (result.ExplicitEmotion == null) result.Sequence = engine.Build(KoreanEmotionRules.PrepareText(clipped), choices, prompt);
+            return result;
         }
 
         internal static ClassificationResult ParseClassification(Dictionary<string, object> response, List<EmotionDefinition> emotions)

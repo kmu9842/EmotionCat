@@ -63,17 +63,16 @@ namespace EmotionCat
         };
         public int DebounceMilliseconds { get; set; }
         public int HoldSeconds { get; set; }
-        public string[] ExcludedProcesses { get; set; }
         public List<EmotionDefinition> Emotions { get; set; }
 
         public static string BaseDirectory
         {
-            get { return AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar); }
+            get { return LocalFiles.Require(AppDomain.CurrentDomain.BaseDirectory); }
         }
 
         public static string DataDirectory
         {
-            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EmotionCat"); }
+            get { return LocalFiles.Require(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EmotionCat")); }
         }
 
         public AppSettings()
@@ -82,19 +81,18 @@ namespace EmotionCat
             X = -1;
             Y = -1;
             AlwaysOnTop = true;
-            InputEnabled = true;
+            InputEnabled = false;
             ClickThrough = false;
             SnapToTaskbar = true;
             Model = "multilingual";
             PythonPath = "";
-            SettingsVersion = 7;
+            SettingsVersion = 8;
             Device = "directml";
             InputMode = "auto";
             ClassificationPrompt = DefaultPrompt;
             MinConfidence = 0.25;
             DebounceMilliseconds = 500;
             HoldSeconds = 1;
-            ExcludedProcesses = new[] { "1Password", "Bitwarden", "KeePass", "KeePassXC", "LastPass", "Dashlane", "NordPass" };
             Emotions = DefaultEmotions();
         }
 
@@ -115,7 +113,7 @@ namespace EmotionCat
 
         public static AppSettings Load()
         {
-            string path = Path.Combine(DataDirectory, "settings.json");
+            string path = LocalFiles.Require(Path.Combine(DataDirectory, "settings.json"));
             if (!File.Exists(path)) return new AppSettings();
             try
             {
@@ -168,6 +166,11 @@ namespace EmotionCat
                     settings.Device = "directml";
                     settings.SettingsVersion = 7;
                 }
+                if (!fields.ContainsKey("SettingsVersion") || settings.SettingsVersion < 8)
+                {
+                    settings.InputEnabled = false; // Renew consent for the privacy changes.
+                    settings.SettingsVersion = 8;
+                }
                 settings.Normalize();
                 return settings;
             }
@@ -175,9 +178,10 @@ namespace EmotionCat
             {
                 if (!(ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is InvalidOperationException || ex is FormatException || ex is OverflowException)) throw;
                 // Keep a readable copy for recovery without blocking startup.
-                try { File.Copy(path, path + ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff"), false); }
+                try { File.Copy(path, LocalFiles.Require(path + ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff")), false); }
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
+                catch (ArgumentException) { }
                 return new AppSettings();
             }
         }
@@ -186,7 +190,7 @@ namespace EmotionCat
         {
             Normalize();
             Directory.CreateDirectory(DataDirectory);
-            string path = Path.Combine(DataDirectory, "settings.json");
+            string path = LocalFiles.Require(Path.Combine(DataDirectory, "settings.json"));
             string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
@@ -198,7 +202,7 @@ namespace EmotionCat
                     writer.Flush();
                     stream.Flush(true);
                 }
-                if (File.Exists(path)) File.Replace(temporary, path, path + ".bak", true);
+                if (File.Exists(path)) File.Replace(temporary, path, LocalFiles.Require(path + ".bak"), true);
                 else File.Move(temporary, path);
             }
             finally
@@ -211,7 +215,7 @@ namespace EmotionCat
         {
             if (InputMode != "korean" && InputMode != "latin") InputMode = "auto";
             Size = Math.Max(180, Math.Min(800, Size));
-            DebounceMilliseconds = Math.Max(150, Math.Min(5000, DebounceMilliseconds));
+            DebounceMilliseconds = 500; // Compatibility field; the privacy deadline is fixed at one second.
             HoldSeconds = Math.Max(1, Math.Min(120, HoldSeconds));
             Model = "multilingual";
             if (PythonPath == null) PythonPath = "";
@@ -220,9 +224,6 @@ namespace EmotionCat
             ClassificationPrompt = Limit(ClassificationPrompt, 1000);
             if (Double.IsNaN(MinConfidence) || Double.IsInfinity(MinConfidence)) MinConfidence = 0.25;
             MinConfidence = Math.Max(0, Math.Min(1, MinConfidence));
-            if (ExcludedProcesses == null) ExcludedProcesses = new AppSettings().ExcludedProcesses;
-            ExcludedProcesses = ExcludedProcesses.Where(p => !String.IsNullOrWhiteSpace(p))
-                .Select(p => Path.GetFileNameWithoutExtension(p.Trim())).Distinct(StringComparer.OrdinalIgnoreCase).Take(100).ToArray();
             if (Emotions == null || Emotions.Count == 0) Emotions = DefaultEmotions();
             var defaults = DefaultEmotions().ToDictionary(e => e.Id, StringComparer.Ordinal);
             var ids = new HashSet<string>(StringComparer.Ordinal);
@@ -297,19 +298,19 @@ namespace EmotionCat
         public static string ResolveAssetPath(string path)
         {
             if (String.IsNullOrWhiteSpace(path)) path = "assets/sprites/neutral.png";
-            if (Path.IsPathRooted(path)) return Path.GetFullPath(path);
-            return Path.GetFullPath(Path.Combine(BaseDirectory, path.Replace('/', Path.DirectorySeparatorChar)));
+            if (Path.IsPathRooted(path)) return LocalFiles.Require(path);
+            return LocalFiles.Require(Path.Combine(BaseDirectory, path.Replace('/', Path.DirectorySeparatorChar)));
         }
 
         public static string ImportImage(string sourcePath)
         {
             if (String.IsNullOrWhiteSpace(sourcePath)) throw new ArgumentException("이미지 파일을 선택하세요.");
-            var source = new FileInfo(sourcePath);
+            var source = new FileInfo(LocalFiles.Require(sourcePath));
             if (!source.Exists) throw new FileNotFoundException("이미지 파일을 찾을 수 없습니다.", sourcePath);
             if (source.Length > 16 * 1024 * 1024) throw new InvalidDataException("이미지는 16 MB 이하여야 합니다.");
-            string directory = Path.Combine(DataDirectory, "assets");
+            string directory = LocalFiles.Require(Path.Combine(DataDirectory, "assets"));
             Directory.CreateDirectory(directory);
-            string target = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".png");
+            string target = LocalFiles.Require(Path.Combine(directory, Guid.NewGuid().ToString("N") + ".png"));
             // Decode, validate and normalize to PNG; a settings entry never relies on an external file.
             using (var stream = new FileStream(source.FullName, FileMode.Open, FileAccess.Read, FileShare.Read))
             using (var image = Image.FromStream(stream, true, true))

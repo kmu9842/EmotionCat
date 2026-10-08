@@ -27,7 +27,7 @@ final class SettingsWindow: NSWindowController, NSTableViewDataSource, NSTableVi
     private let testResult = NSTextField(wrappingLabelWithString: "")
     private let model = NSPopUpButton()
     private let promptField = NSTextField()
-    private let capture = NSButton(checkboxWithTitle: "입력으로 감정 바꾸기", target: nil, action: nil)
+    private let capture = NSButton(checkboxWithTitle: "다른 앱의 타자 내용 수집·로컬 분석 허용", target: nil, action: nil)
     private let size = NSSlider(value: 320, minValue: 180, maxValue: 700, target: nil, action: nil)
     private let sizeLabel = NSTextField(labelWithString: "320 px")
     private var loadedRow = -1
@@ -292,6 +292,9 @@ final class SettingsWindow: NSWindowController, NSTableViewDataSource, NSTableVi
     @objc private func test() {
         commitEditor()
         let text = String(testInput.stringValue.suffix(600))
+        testInput.stringValue = ""
+        testInput.currentEditor()?.string = ""
+        testInput.currentEditor()?.undoManager?.removeAllActions()
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         testResult.stringValue = "Laya가 감정을 고르고 있습니다…"
         onTest?(text)

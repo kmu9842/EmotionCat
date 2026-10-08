@@ -51,7 +51,8 @@ struct AppSettings: Codable {
     var x: Double? = nil
     var y: Double? = nil
     var docked = true
-    var captureText = true
+    var captureText = false
+    var privacyVersion: Int? = 1
     var model = "multilingual"
     var classificationPrompt = "문장을 쓴 사람은 어떤 감정을 느끼고 있나요?"
     var emotions = EmotionDefinition.defaults
@@ -68,12 +69,13 @@ final class SettingsStore {
         directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("EmotionCat", isDirectory: true)
         file = directory.appendingPathComponent("mac-settings.json")
-        if let data = try? Data(contentsOf: file), data.count < 1_048_576,
+        if let safeFile = try? LocalFiles.require(file), let data = try? Data(contentsOf: safeFile), data.count < 1_048_576,
            let decoded = try? JSONDecoder().decode(AppSettings.self, from: data) {
             settings = decoded
         } else {
             settings = AppSettings()
         }
+        if settings.privacyVersion != 1 { settings.captureText = false; settings.privacyVersion = 1 }
         settings.size = settings.size.isFinite ? min(700, max(180, settings.size)) : 320
         if let x = settings.x, !x.isFinite { settings.x = nil }
         if let y = settings.y, !y.isFinite { settings.y = nil }
@@ -96,12 +98,13 @@ final class SettingsStore {
         }
     }
 
-    func assetURL(_ path: String) -> URL {
-        if path.hasPrefix("/") { return URL(fileURLWithPath: path) }
-        return resources.appendingPathComponent(path)
+    func assetURL(_ path: String) -> URL? {
+        let url = path.hasPrefix("/") ? URL(fileURLWithPath: path) : resources.appendingPathComponent(path)
+        return try? LocalFiles.require(url)
     }
 
     func save() throws {
+        _ = try LocalFiles.require(file)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -109,6 +112,8 @@ final class SettingsStore {
     }
 
     func importImage(_ source: URL) throws -> String {
+        _ = try LocalFiles.require(source)
+        _ = try LocalFiles.require(directory)
         let values = try source.resourceValues(forKeys: [.fileSizeKey])
         guard (values.fileSize ?? Int.max) <= 16 * 1_024 * 1_024,
               let data = try? Data(contentsOf: source),
@@ -118,9 +123,9 @@ final class SettingsStore {
               let png = bitmap.representation(using: .png, properties: [:]) else {
             throw NSError(domain: "EmotionCat", code: 1, userInfo: [NSLocalizedDescriptionKey: "이미지는 16 MB, 4096 × 4096 픽셀 이하여야 합니다."])
         }
-        let folder = directory.appendingPathComponent("images", isDirectory: true)
+        let folder = try LocalFiles.require(directory.appendingPathComponent("images", isDirectory: true))
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let target = folder.appendingPathComponent(UUID().uuidString + ".png")
+        let target = try LocalFiles.require(folder.appendingPathComponent(UUID().uuidString + ".png"))
         try png.write(to: target, options: .atomic)
         return target.path
     }
@@ -132,7 +137,7 @@ final class SpriteCache {
     init(store: SettingsStore) { self.store = store }
     func image(_ path: String) -> NSImage? {
         if let image = images[path] { return image }
-        guard let image = NSImage(contentsOf: store.assetURL(path)) else { return nil }
+        guard let url = store.assetURL(path), let image = NSImage(contentsOf: url) else { return nil }
         images[path] = image
         return image
     }

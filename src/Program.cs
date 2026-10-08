@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace EmotionCat
 {
@@ -33,9 +34,8 @@ namespace EmotionCat
         public readonly LayaClient Client = new LayaClient();
         public readonly Icon AppIcon;
         public string ModelStatus = "Laya 준비 중…", InputStatus = "입력 대기";
-        public string LastInputText = "", DecisionSummary = "아직 분류 결과가 없어요.";
+        public string DecisionSummary = "아직 분류 결과가 없어요.";
         public int CaptureCount, SentCount, ResponseCount, ObservedChars;
-        public DateTime LastCapturedAt;
         public string PipelineSummary { get { return "감지 " + CaptureCount + " → 전달 " + SentCount + " → 결과 " + ResponseCount + " · 현재 " + ObservedChars + "자"; } }
         readonly CatOverlay overlay;
         readonly InputMonitor monitor = new InputMonitor();
@@ -50,7 +50,7 @@ namespace EmotionCat
         DateTime lastEmotion = DateTime.UtcNow;
         string lastEmotionId = "neutral";
         long requestVersion;
-        string queuedText;
+        TransientText queuedText;
         long queuedContext;
         long activeContext = -1;
         bool analyzing, restarting, exiting;
@@ -60,12 +60,12 @@ namespace EmotionCat
         {
             this.previewOnly = previewOnly;
             persistSettings = !renderOnly;
-            bool firstRun = !File.Exists(Path.Combine(AppSettings.DataDirectory, "settings.json"));
+            bool firstRun = !File.Exists(LocalFiles.Require(Path.Combine(AppSettings.DataDirectory, "settings.json")));
             Settings = AppSettings.Load();
             monitor.CaptureProcessIdFilter = captureProcessIdFilter;
             if (inputModeOverride != null) Settings.InputMode = inputModeOverride;
             saveDelay.Tick += delegate { saveDelay.Stop(); SaveSettings(); };
-            string iconPath = Path.Combine(AppSettings.BaseDirectory, "assets", "emotioncat.ico");
+            string iconPath = LocalFiles.Require(Path.Combine(AppSettings.BaseDirectory, "assets", "emotioncat.ico"));
             AppIcon = File.Exists(iconPath) ? new Icon(iconPath) : (Icon)SystemIcons.Information.Clone();
             overlay = new CatOverlay(Settings, Sprites); if (!renderOnly) overlay.Show();
             var overlayHandle = overlay.Handle;
@@ -82,11 +82,11 @@ namespace EmotionCat
             tray = new NotifyIcon { Icon = AppIcon, Text = "EmotionCat · 로컬 감정 봉고캣", Visible = !renderOnly, ContextMenuStrip = menu };
             tray.DoubleClick += delegate { OpenSettings(); };
             monitor.KeyPressed += key => OnUI(delegate { if (!exiting) overlay.Hit(key); });
-            monitor.TextReadyWithContext += (text, context) => OnUI(delegate { if (Settings.InputEnabled) QueueText(text, context); });
+            monitor.TextReadyWithContext += (text, context) => OnUI(delegate { QueueText(text, context); }, text.Dispose);
             monitor.ContextClearedWithVersion += context => OnUI(delegate
             {
                 if (context != monitor.ContextVersion) return;
-                if (queuedContext != context) queuedText = null;
+                if (queuedContext != context) ClearQueuedText();
                 if (activeContext >= 0 && activeContext != context) requestVersion++;
             });
             monitor.TextObserved += count => OnUI(delegate { ObservedChars = count; RefreshStatus(); });
@@ -106,6 +106,8 @@ namespace EmotionCat
                 }
             });
             idle.Tick += delegate { idle.Stop(); ShowEmotion("neutral"); };
+            SystemEvents.SessionSwitch += SessionChanged;
+            SystemEvents.PowerModeChanged += PowerChanged;
             ApplySettings();
             if (!previewOnly) { monitor.Start(); StartModel(); }
             else { InputStatus = "미리보기 모드 · 전역 입력 인식 꺼짐"; ModelStatus = "미리보기 모드 · 연결 버튼으로 Laya 테스트 가능"; }
@@ -119,9 +121,7 @@ namespace EmotionCat
         public void ApplySettings(bool persist = true)
         {
             monitor.Enabled = Settings.InputEnabled && Client.IsReady && !previewOnly;
-            monitor.DebounceMilliseconds = Settings.DebounceMilliseconds;
             monitor.InputMode = Settings.InputMode;
-            if (!monitor.ExcludedProcesses.SequenceEqual(Settings.ExcludedProcesses)) monitor.ExcludedProcesses = Settings.ExcludedProcesses;
             pauseItem.Checked = !Settings.InputEnabled; pauseItem.Enabled = Client.IsReady; clickItem.Checked = Settings.ClickThrough;
             if (!Settings.InputEnabled) { InvalidateRequests(); ShowEmotion("neutral"); }
             overlay.ApplySettings();
@@ -134,11 +134,11 @@ namespace EmotionCat
             try { Settings.Save(); }
             catch (Exception ex) { if (ex is IOException || ex is UnauthorizedAccessException) { ModelStatus = "설정을 저장하지 못했어요: " + ex.Message; RefreshStatus(); } else throw; }
         }
-        void OnUI(Action action)
+        void OnUI(Action action, Action dropped = null)
         {
-            if (exiting || overlay.IsDisposed || !overlay.IsHandleCreated) return;
+            if (exiting || overlay.IsDisposed || !overlay.IsHandleCreated) { if (dropped != null) dropped(); return; }
             try { if (overlay.InvokeRequired) overlay.BeginInvoke(action); else action(); }
-            catch (InvalidOperationException) { }
+            catch (InvalidOperationException) { if (dropped != null) dropped(); }
         }
         void RefreshStatus() { if (form != null && !form.IsDisposed) form.UpdateStatus(); }
         async void StartModel() { await RestartModel(); }
@@ -149,11 +149,15 @@ namespace EmotionCat
             try { InvalidateRequests(); monitor.Enabled = false; Client.Stop(); await Client.StartAsync(Settings); ModelStatus = Client.Status; ApplySettings(); }
             finally { restarting = false; }
         }
-        void InvalidateRequests() { requestVersion++; queuedText = null; }
-        void QueueText(string text, long context)
+        void ClearQueuedText() { if (queuedText != null) queuedText.Dispose(); queuedText = null; }
+        void InvalidateRequests() { requestVersion++; ClearQueuedText(); }
+        void SessionChanged(object sender, SessionSwitchEventArgs e) { monitor.Clear(); OnUI(InvalidateRequests); }
+        void PowerChanged(object sender, PowerModeChangedEventArgs e) { monitor.Clear(); OnUI(InvalidateRequests); }
+        void QueueText(TransientText text, long context)
         {
-            if (!Settings.InputEnabled || !Client.IsReady || context != monitor.ContextVersion || String.IsNullOrWhiteSpace(text)) return;
-            LastInputText = text; LastCapturedAt = DateTime.Now; CaptureCount++;
+            if (!Settings.InputEnabled || !Client.IsReady || context != monitor.ContextVersion) { text.Dispose(); return; }
+            CaptureCount++;
+            ClearQueuedText();
             queuedText = text; queuedContext = context; requestVersion++;
             RefreshStatus();
             if (Client.IsReady && !analyzing) ProcessQueue();
@@ -165,13 +169,15 @@ namespace EmotionCat
             {
                 while (queuedText != null && !exiting && Client.IsReady)
                 {
-                    string text = queuedText; long context = queuedContext; long version = requestVersion; queuedText = null;
-                    if (context != monitor.ContextVersion) continue;
+                    TransientText captured = queuedText; long context = queuedContext; long version = requestVersion; queuedText = null;
+                    string text = captured.Take(); captured.Dispose();
+                    if (context != monitor.ContextVersion || String.IsNullOrWhiteSpace(text)) { text = null; continue; }
                     activeContext = context; SentCount++; DecisionSummary = "Laya가 최근 " + text.Length + "자를 분석 중…"; RefreshStatus();
                     var choices = Settings.Emotions.Select(x => new EmotionDefinition { Id = x.Id, Name = x.Name, Description = x.Description, ImagePath = x.ImagePath }).ToList();
-                    var result = await Client.ClassifyAsync(text, choices, Settings.ClassificationPrompt, "typing"); text = null;
+                    var classification = Client.ClassifyAsync(text, choices, Settings.ClassificationPrompt, "typing", captured.ExpiresAt); text = null;
+                    var result = await classification;
                     if (result != null) { ResponseCount++; RecordDecision(result); }
-                    else { DecisionSummary = "분류 응답을 받지 못했어요. 설정에서 감정 모델을 다시 시작해 주세요."; RefreshStatus(); }
+                    else { DecisionSummary = "분석 만료·취소 · 입력 폐기"; RefreshStatus(); }
                     if (!exiting && result != null && version == requestVersion && context == monitor.ContextVersion && Settings.InputEnabled && Settings.Emotions.Any(x => x.Id == result.Emotion)) ShowEmotion(result.Emotion);
                 }
             }
@@ -182,11 +188,12 @@ namespace EmotionCat
         {
             if (!Client.IsReady) throw new InvalidOperationException("Laya가 연결되지 않았어요. 먼저 모델을 연결해 주세요.");
             InvalidateRequests();
-            activeContext = -1; LastInputText = text; LastCapturedAt = DateTime.Now; SentCount++; RefreshStatus();
+            activeContext = -1; SentCount++; RefreshStatus();
             long version = requestVersion;
             var choices = Settings.Emotions.Select(x => new EmotionDefinition { Id = x.Id, Name = x.Name, Description = x.Description, ImagePath = x.ImagePath }).ToList();
-            var result = await Client.ClassifyAsync(text, choices, Settings.ClassificationPrompt, "manual");
-            if (result == null) throw new InvalidOperationException("모델이 다른 문장을 분석 중이거나 응답하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+            var classification = Client.ClassifyAsync(text, choices, Settings.ClassificationPrompt, "manual"); text = null;
+            var result = await classification;
+            if (result == null) throw new InvalidOperationException("분석이 만료되었거나 모델이 사용 중입니다. 입력은 폐기했습니다.");
             ResponseCount++; RecordDecision(result);
             if (version == requestVersion && !exiting) ShowEmotion(result.Emotion);
             return result;
@@ -221,6 +228,8 @@ namespace EmotionCat
         {
             if (exiting) return;
             exiting = true; idle.Stop(); saveDelay.Stop(); InvalidateRequests();
+            SystemEvents.SessionSwitch -= SessionChanged;
+            SystemEvents.PowerModeChanged -= PowerChanged;
             monitor.Dispose(); Client.Dispose(); tray.Visible = false; tray.Dispose();
             if (form != null) form.Close();
             Settings.X = overlay.Left; Settings.Y = overlay.Top; SaveSettings(); overlay.Close(); Sprites.Dispose(); AppIcon.Dispose(); idle.Dispose(); saveDelay.Dispose();

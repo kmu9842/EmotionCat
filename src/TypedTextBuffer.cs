@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
+using System.Diagnostics;
+using System.Threading;
 
 namespace EmotionCat
 {
@@ -8,19 +11,66 @@ namespace EmotionCat
     // work without asking another application to expose an editable text field.
     internal sealed class TypedTextBuffer
     {
-        readonly StringBuilder committed = new StringBuilder();
-        readonly StringBuilder jamo = new StringBuilder();
+        readonly char[] committed = new char[240];
+        readonly char[] jamo = new char[1024];
+        int committedCount, jamoCount;
+        readonly object gate = new object();
+        Timer expiry;
+        int expiryVersion;
+        long expiresAt;
         const string Leads = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
         const string Vowels = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ";
         const string Tails = " ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ";
         const string Keys = "rRseEfaqQtTdwWczxvgkoiOjpuPhynbml";
         const string Letters = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎㅏㅐㅑㅒㅓㅔㅕㅖㅗㅛㅜㅠㅡㅣ";
 
-        public string Text { get { return Tail(committed.ToString() + Compose(jamo.ToString()), 240); } }
-        public void Clear() { committed.Clear(); jamo.Clear(); }
-        public void Commit() { committed.Append(Compose(jamo.ToString())); jamo.Clear(); Trim(); }
+        public string Text { get { lock (gate) { if (Expired()) return ""; return Tail(new string(committed, 0, committedCount) + Compose(new ArraySegment<char>(jamo, 0, jamoCount)), 240); } } }
+        bool Expired() { if (expiresAt != 0 && Stopwatch.GetTimestamp() >= expiresAt) { Clear(); return true; } return false; }
+        public void Clear()
+        {
+            lock (gate)
+            {
+                expiryVersion++;
+                if (expiry != null) { expiry.Dispose(); expiry = null; }
+                Array.Clear(committed, 0, committed.Length); Array.Clear(jamo, 0, jamo.Length); committedCount = jamoCount = 0;
+            }
+        }
+        public void ExpireAt(long deadline)
+        {
+            lock (gate)
+            {
+                if (expiry != null) expiry.Dispose();
+                expiresAt = deadline;
+                int version = ++expiryVersion;
+                expiry = new Timer(delegate { lock (gate) { if (version == expiryVersion) Clear(); } }, null,
+                    Math.Max(0, (int)Math.Min(1000, (deadline - Stopwatch.GetTimestamp()) * 1000 / Stopwatch.Frequency)), Timeout.Infinite);
+            }
+        }
+        public void Commit()
+        {
+            lock (gate)
+            {
+            if (Expired()) return;
+            foreach (char c in Compose(new ArraySegment<char>(jamo, 0, jamoCount))) AppendCommitted(c);
+            Array.Clear(jamo, 0, jamo.Length); jamoCount = 0;
+            }
+        }
+        void AppendCommitted(char c)
+        {
+            if (committedCount == committed.Length)
+            {
+                int discard = Char.IsHighSurrogate(committed[0]) && Char.IsLowSurrogate(committed[1]) ? 2 : 1;
+                Array.Copy(committed, discard, committed, 0, committedCount - discard);
+                committedCount -= discard;
+                Array.Clear(committed, committedCount, discard);
+            }
+            committed[committedCount++] = c;
+        }
         public void Append(string text, bool korean)
         {
+            lock (gate)
+            {
+            if (Expired()) return;
             foreach (char c in text)
             {
                 char key = c;
@@ -28,23 +78,30 @@ namespace EmotionCat
                 int index = Keys.IndexOf(key);
                 if (korean && index >= 0)
                 {
-                    jamo.Append(Letters[index]);
-                    // Keep at most 1024 uncommitted physical jamo; output is 240 chars.
-                    if (jamo.Length > 1024) jamo.Remove(0, 256);
+                    if (jamoCount == jamo.Length)
+                    {
+                        Array.Copy(jamo, 256, jamo, 0, jamoCount - 256);
+                        jamoCount -= 256; Array.Clear(jamo, jamoCount, 256);
+                    }
+                    jamo[jamoCount++] = Letters[index];
                 }
-                else if (!Char.IsControl(c)) { Commit(); committed.Append(c); Trim(); }
+                else if (!Char.IsControl(c)) { Commit(); AppendCommitted(c); }
+            }
             }
         }
         public void Backspace()
         {
-            if (jamo.Length > 0) jamo.Length--;
-            else if (committed.Length > 0)
+            lock (gate)
             {
-                int count = committed.Length > 1 && Char.IsLowSurrogate(committed[committed.Length - 1]) && Char.IsHighSurrogate(committed[committed.Length - 2]) ? 2 : 1;
-                committed.Length -= count;
+            if (Expired()) return;
+            if (jamoCount > 0) jamo[--jamoCount] = '\0';
+            else if (committedCount > 0)
+            {
+                int count = committedCount > 1 && Char.IsLowSurrogate(committed[committedCount - 1]) && Char.IsHighSurrogate(committed[committedCount - 2]) ? 2 : 1;
+                committedCount -= count; Array.Clear(committed, committedCount, count);
+            }
             }
         }
-        void Trim() { if (committed.Length > 240) { string text = Tail(committed.ToString(), 240); committed.Clear(); committed.Append(text); } }
         static string Tail(string s, int n) { int start = Math.Max(0, s.Length - n); if (start > 0 && Char.IsLowSurrogate(s[start])) start++; return s.Substring(start); }
         static int CompoundVowel(int a, int b)
         {
@@ -73,7 +130,7 @@ namespace EmotionCat
             else if (l >= 0) output.Append(Leads[l]);
             else if (v >= 0) output.Append(Vowels[v]);
         }
-        internal static string Compose(string source)
+        internal static string Compose(IEnumerable<char> source)
         {
             var output = new StringBuilder(); int l = -1, v = -1, t = 0;
             foreach (char c in source)

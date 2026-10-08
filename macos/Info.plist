@@ -12,9 +12,6 @@
     <key>LSMinimumSystemVersion</key><string>13.4</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
-    <key>NSInputMonitoringUsageDescription</key><string>키를 누를 때 고양이의 양발을 움직입니다.</string>
-    <key>NSAccessibilityUsageDescription</key><string>방금 입력한 문장을 기기 안의 Laya 모델로 분류해 고양이 표정을 바꿉니다.</string>
-    <key>NSAppTransportSecurity</key>
-    <dict><key>NSAllowsLocalNetworking</key><true/></dict>
+    <key>NSInputMonitoringUsageDescription</key><string>키를 누를 때 발을 움직입니다. 감정 인식을 켜면 다른 앱의 타자 내용을 잠시 수집해 기기 안에서 분석한 뒤 폐기합니다.</string>
 </dict>
 </plist>

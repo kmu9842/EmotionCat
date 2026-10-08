@@ -1,12 +1,10 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
-using System.Windows.Automation;
 
 namespace EmotionCat
 {
@@ -20,16 +18,14 @@ namespace EmotionCat
         Thread hookThread, readerThread;
         HookProc keyboardCallback, mouseCallback;
         volatile bool running, disposed, enabled = true;
-        volatile int debounceMilliseconds = 500;
+        const int debounceMilliseconds = 500;
         volatile string inputMode = "auto";
-        volatile string[] excludedProcesses = new string[0];
         int generation, queuedCount, queuedAnimation, latestAnimationKey, wakeDisposed;
         uint hookThreadId;
         bool capsOn;
         string lastStatus;
         public event Action<int> KeyPressed;
-        public event Action<string> TextReady;
-        public event Action<string, int> TextReadyWithContext;
+        public event Action<TransientText, int> TextReadyWithContext;
         public event Action<int> TextObserved;
         public event Action<string> StatusChanged;
         public event Action ContextCleared;
@@ -37,24 +33,7 @@ namespace EmotionCat
         internal int CaptureProcessIdFilter { get; set; }
         public int ContextVersion { get { return Volatile.Read(ref generation); } }
         public bool Enabled { get { return enabled; } set { if (enabled != value) { enabled = value; Clear(); } } }
-        // Persisted name retained for compatibility: one-shot collection window.
-        public int DebounceMilliseconds { get { return debounceMilliseconds; } set { debounceMilliseconds = Math.Max(150, Math.Min(5000, value)); Signal(); } }
         public string InputMode { get { return inputMode; } set { string mode = value == "korean" || value == "latin" ? value : "auto"; if (inputMode != mode) { inputMode = mode; Clear(); } } }
-        public string[] ExcludedProcesses
-        {
-            get { return (string[])excludedProcesses.Clone(); }
-            set
-            {
-                var names = new List<string>();
-                if (value != null) foreach (string name in value)
-                {
-                    string clean = (name ?? "").Trim();
-                    if (clean.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) clean = clean.Substring(0, clean.Length - 4);
-                    if (clean.Length > 0) names.Add(clean);
-                }
-                excludedProcesses = names.ToArray(); Clear();
-            }
-        }
         public void Start()
         {
             lock (lifecycle)
@@ -72,6 +51,8 @@ namespace EmotionCat
         public void Clear()
         {
             int version = Interlocked.Increment(ref generation);
+            Stroke stale;
+            while (events.TryDequeue(out stale)) { Interlocked.Decrement(ref queuedCount); stale.Erase(); }
             ThreadPool.QueueUserWorkItem(delegate
             {
                 if (disposed) return;
@@ -149,7 +130,7 @@ namespace EmotionCat
         }
         void Enqueue(Stroke stroke)
         {
-            if (Interlocked.Increment(ref queuedCount) > 512) { Interlocked.Decrement(ref queuedCount); Clear(); return; }
+            if (Interlocked.Increment(ref queuedCount) > 128) { Interlocked.Decrement(ref queuedCount); stroke.Erase(); Clear(); return; }
             events.Enqueue(stroke); Signal();
         }
         void QueueAnimation(int key)
@@ -167,9 +148,9 @@ namespace EmotionCat
         {
             var buffer = new TypedTextBuffer();
             int version = ContextVersion;
-            string pending = "", emitted = "", deadAccent = "";
-            bool fresh = true, korean = false, blocked = false;
-            long due = 0, lastCharacter = 0, checkedAt = 0, modeAt = 0;
+            string deadAccent = "";
+            bool korean = false;
+            long due = 0, expires = 0, modeAt = 0;
             IntPtr window = IntPtr.Zero, focus = IntPtr.Zero, layout = IntPtr.Zero;
             try
             {
@@ -179,35 +160,30 @@ namespace EmotionCat
                     {
                     if (version != ContextVersion)
                     {
-                        version = ContextVersion; buffer.Clear(); pending = emitted = deadAccent = "";
-                        due = 0; fresh = true; window = IntPtr.Zero; ReportObserved(0);
+                        version = ContextVersion; buffer.Clear(); deadAccent = "";
+                        due = 0; window = IntPtr.Zero; ReportObserved(0);
                     }
                     Stroke stroke;
                     while (events.TryDequeue(out stroke))
                     {
                         Interlocked.Decrement(ref queuedCount);
-                        if (!enabled || stroke.Version != version) continue;
-                        if (stroke.Break) { fresh = true; checkedAt = modeAt = 0; continue; }
+                        try
+                        {
+                        if (!enabled || stroke.Version != version || stroke.Version != ContextVersion) continue;
+                        if (stroke.Break || Elapsed(stroke.Time) > debounceMilliseconds)
+                        { buffer.Clear(); deadAccent = ""; due = modeAt = 0; Clear(); break; }
                         if (stroke.Control && !stroke.AltGr || stroke.Alt && !stroke.AltGr || stroke.Windows ||
                             stroke.Key == 9 || stroke.Key == 27 || stroke.Key == 46 || stroke.Key >= 33 && stroke.Key <= 40)
-                        { fresh = true; checkedAt = modeAt = 0; deadAccent = ""; continue; }
-                        if (stroke.Window == IntPtr.Zero) continue;
+                        { buffer.Clear(); due = modeAt = 0; deadAccent = ""; Clear(); break; }
+                        if (stroke.Window == IntPtr.Zero || stroke.Window != GetForegroundWindow())
+                        { buffer.Clear(); due = 0; Clear(); break; }
                         var gui = new GuiThreadInfo { Size = Marshal.SizeOf(typeof(GuiThreadInfo)) };
                         IntPtr nextFocus = GetGUIThreadInfo(stroke.Thread, ref gui) ? gui.Focus : stroke.Window;
                         bool changed = window != stroke.Window || focus != nextFocus || layout != stroke.Layout;
                         if (changed)
                         {
-                            window = stroke.Window; focus = nextFocus; layout = stroke.Layout; fresh = true; checkedAt = modeAt = 0; deadAccent = "";
-                        }
-                        if (checkedAt == 0 || Elapsed(checkedAt) >= 750)
-                        {
-                            blocked = IsExcluded(stroke.Process) || IsProtectedField(window, focus);
-                            checkedAt = Stopwatch.GetTimestamp();
-                        }
-                        if (blocked)
-                        {
-                            buffer.Clear(); pending = emitted = ""; due = 0; fresh = true; ReportObserved(0);
-                            SetStatus("암호 입력칸 또는 제외 앱 · 문자를 기록하지 않음"); continue;
+                            buffer.Clear(); due = modeAt = 0; deadAccent = "";
+                            window = stroke.Window; focus = nextFocus; layout = stroke.Layout;
                         }
                         if (stroke.Key == 21) { buffer.Commit(); korean = !korean; modeAt = 0; continue; }
                         if (inputMode == "korean") korean = true;
@@ -218,34 +194,42 @@ namespace EmotionCat
                             if (TryReadKoreanMode(focus, window, layout, out native)) korean = native;
                             modeAt = Stopwatch.GetTimestamp();
                         }
-                        if (stroke.Key == 13) { buffer.Commit(); fresh = true; continue; }
+                        if (stroke.Key == 13) { if (due != 0) due = Stopwatch.GetTimestamp(); break; }
                         if (stroke.Key == 8)
                         {
                             buffer.Backspace();
-                            if (due != 0) { pending = buffer.Text.Trim(); if (pending.Length == 0) due = 0; }
                             ReportObserved(buffer.Text.Length); continue;
                         }
                         string characters = Characters(stroke, korean, ref deadAccent);
-                        if (characters.Length == 0) continue;
-                        if (fresh || lastCharacter != 0 && Milliseconds(lastCharacter, stroke.Time) > 1800)
-                        { buffer.Clear(); emitted = ""; fresh = false; }
-                        buffer.Append(characters, korean && stroke.Key != 231);
-                        lastCharacter = stroke.Time;
-                        pending = buffer.Text.Trim();
-                        ReportObserved(pending.Length);
-                        if (pending.Length > 0 && pending != emitted && due == 0)
+                        if (due == 0 && (characters.Length > 0 || deadAccent.Length > 0))
+                        {
                             due = stroke.Time + debounceMilliseconds * Stopwatch.Frequency / 1000;
-                        SetStatus("전역 문자 입력 · " + (korean ? "한글 두벌식" : "현재 키보드 문자") + " · " + pending.Length + "자 기록");
+                            expires = stroke.Time + Stopwatch.Frequency;
+                            buffer.ExpireAt(expires);
+                        }
+                        if (characters.Length == 0) continue;
+                        buffer.Append(characters, korean && stroke.Key != 231);
+                        characters = null;
+                        ReportObserved(buffer.Text.Length);
+                        SetStatus("전역 문자 입력 · 분석 전달 후 입력 버퍼 폐기");
+                        if (Stopwatch.GetTimestamp() >= due) break;
+                        }
+                        finally { stroke.Erase(); }
                     }
                     if (due != 0 && Stopwatch.GetTimestamp() >= due)
                     {
                         due = 0;
-                        if (enabled && version == ContextVersion && pending.Length > 0 && pending != emitted)
+                        TransientText text = null;
+                        try
                         {
-                            emitted = pending;
-                            var contextual = TextReadyWithContext; if (contextual != null) contextual(pending, version);
-                            var callback = TextReady; if (callback != null) callback(pending);
+                            if (enabled && version == ContextVersion && window == GetForegroundWindow() && Stopwatch.GetTimestamp() < expires)
+                            {
+                                text = new TransientText(buffer.Text.Trim(), expires);
+                                var callback = TextReadyWithContext;
+                                if (callback != null) { callback(text, version); text = null; }
+                            }
                         }
+                        finally { if (text != null) text.Dispose(); buffer.Clear(); deadAccent = ""; ReportObserved(0); }
                     }
                     if (!running) break;
                     int wait = due == 0 ? Timeout.Infinite : Math.Max(1, (int)Math.Min(5000, (due - Stopwatch.GetTimestamp()) * 1000 / Stopwatch.Frequency));
@@ -253,13 +237,13 @@ namespace EmotionCat
                     }
                     catch (Exception)
                     {
-                        buffer.Clear(); pending = emitted = deadAccent = ""; due = 0; fresh = true;
+                        buffer.Clear(); deadAccent = ""; due = 0; Clear();
                         SetStatus("입력 처리 오류 · 다음 문자 입력 대기");
                         if (running) wake.WaitOne();
                     }
                 }
             }
-            finally { buffer.Clear(); if (disposed) DisposeWake(); }
+            finally { buffer.Clear(); deadAccent = ""; if (disposed) DisposeWake(); }
         }
         static string Characters(Stroke stroke, bool korean, ref string deadAccent)
         {
@@ -296,34 +280,6 @@ namespace EmotionCat
             if (ime == IntPtr.Zero || SendMessageTimeout(ime, 0x283, (IntPtr)1, IntPtr.Zero, 2, 25, out mode) == IntPtr.Zero) return false;
             korean = (mode.ToUInt64() & 1) != 0; return true;
         }
-        bool IsExcluded(int pid)
-        {
-            try { using (var process = Process.GetProcessById(pid)) foreach (string name in excludedProcesses) if (String.Equals(name, process.ProcessName, StringComparison.OrdinalIgnoreCase)) return true; }
-            catch { return true; }
-            return false;
-        }
-        static bool IsProtectedField(IntPtr window, IntPtr focus)
-        {
-            var className = new StringBuilder(128);
-            if (focus != IntPtr.Zero && GetClassName(focus, className, 128) > 0 &&
-                className.ToString().IndexOf("edit", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                (GetWindowLong(focus, -16).ToInt64() & 0x20) != 0) return true;
-            // Optional password metadata only. Unsupported controls still work.
-            if (GetForegroundWindow() != window) return false;
-            try
-            {
-                var element = AutomationElement.FocusedElement;
-                for (int i = 0; element != null && i < 8; i++)
-                {
-                    var info = element.Current;
-                    if (info.IsPassword) return true;
-                    if (info.NativeWindowHandle == window.ToInt64()) break;
-                    element = TreeWalker.ControlViewWalker.GetParent(element);
-                }
-            }
-            catch { }
-            return false;
-        }
         void ReportObserved(int count) { var handler = TextObserved; if (handler != null) handler(count); }
         void SetStatus(string value) { if (lastStatus == value) return; lastStatus = value; var handler = StatusChanged; if (handler != null) handler(value); }
         static int Elapsed(long since) { return Milliseconds(since, Stopwatch.GetTimestamp()); }
@@ -334,6 +290,9 @@ namespace EmotionCat
             {
                 if (disposed) return;
                 enabled = false; running = false; Interlocked.Increment(ref generation); Signal(); disposed = true;
+                Stroke stale;
+                while (events.TryDequeue(out stale)) { Interlocked.Decrement(ref queuedCount); stale.Erase(); }
+                Array.Clear(keys, 0, keys.Length);
             }
             if (hookThreadId != 0) PostThreadMessage(hookThreadId, 0x12, IntPtr.Zero, IntPtr.Zero);
             if (hookThread != null && hookThread != Thread.CurrentThread) hookThread.Join(400);
@@ -344,6 +303,11 @@ namespace EmotionCat
         {
             public int Key, Process, Version; public uint Scan, Thread;
             public IntPtr Window, Layout; public bool Shift, Control, Alt, AltGr, Windows, Caps, Break; public long Time;
+            public void Erase()
+            {
+                Key = Process = Version = 0; Scan = Thread = 0; Window = Layout = IntPtr.Zero;
+                Shift = Control = Alt = AltGr = Windows = Caps = Break = false; Time = 0;
+            }
         }
         delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
         [StructLayout(LayoutKind.Sequential)] struct KeyboardData { public uint vkCode, scanCode, flags, time; public UIntPtr extra; }
@@ -366,8 +330,6 @@ namespace EmotionCat
         [DllImport("user32.dll")] static extern uint MapVirtualKeyEx(uint code, uint type, IntPtr layout);
         [DllImport("imm32.dll")] static extern IntPtr ImmGetDefaultIMEWnd(IntPtr window);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr w, IntPtr l, uint flags, uint timeout, out UIntPtr result);
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int count);
-        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] static extern IntPtr GetWindowLong(IntPtr window, int index);
         [DllImport("user32.dll")] static extern bool PeekMessage(out NativeMessage message, IntPtr window, uint min, uint max, uint remove);
         [DllImport("user32.dll")] static extern int GetMessage(out NativeMessage message, IntPtr window, uint min, uint max);
         [DllImport("user32.dll")] static extern bool TranslateMessage(ref NativeMessage message);

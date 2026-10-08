@@ -3,13 +3,43 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
+using System.Threading;
 
 namespace EmotionCat
 {
-    public sealed class LayaSequence
+    public sealed class LayaSequence : IDisposable
     {
         public long[] InputIds;
         public long[] MarkerPositions;
+        internal readonly object Gate = new object();
+        internal bool Erased;
+        long expiresAt;
+        Timer expiry;
+        public long ExpiresAt
+        {
+            get { lock (Gate) return expiresAt; }
+            set
+            {
+                lock (Gate)
+                {
+                    expiresAt = value;
+                    if (expiry != null) { expiry.Dispose(); expiry = null; }
+                    if (value != 0) expiry = new Timer(delegate { Dispose(); }, null,
+                        Math.Max(0, (int)Math.Min(1000, (value - Stopwatch.GetTimestamp()) * 1000 / Stopwatch.Frequency)), Timeout.Infinite);
+                }
+            }
+        }
+        public void Dispose()
+        {
+            lock (Gate)
+            {
+                if (expiry != null) { expiry.Dispose(); expiry = null; }
+                Erased = true;
+                if (InputIds != null) Array.Clear(InputIds, 0, InputIds.Length);
+                if (MarkerPositions != null) Array.Clear(MarkerPositions, 0, MarkerPositions.Length);
+            }
+        }
     }
 
     /// In-process GPU-only Laya inference. CPU EP fallback is forbidden by the runtime.
@@ -26,22 +56,22 @@ namespace EmotionCat
         private readonly IntPtr[] inputNames, outputNames;
         public LayaTokenizer Tokenizer { get; private set; }
 
-        public static string ModelDirectory { get { return Path.Combine(AppSettings.BaseDirectory, "model"); } }
+        public static string ModelDirectory { get { return LocalFiles.Require(Path.Combine(AppSettings.BaseDirectory, "model")); } }
         public static bool IsInstalled
         {
-            get { return File.Exists(Path.Combine(ModelDirectory, ModelFile)) && File.Exists(Path.Combine(ModelDirectory, TokenizerFile)); }
+            get { return File.Exists(LocalFiles.Require(Path.Combine(ModelDirectory, ModelFile))) && File.Exists(LocalFiles.Require(Path.Combine(ModelDirectory, TokenizerFile))); }
         }
 
-        public LayaEngine(string directory, int threads, string profilePath = null)
+        public LayaEngine(string directory, int threads)
         {
             inputNames = InputNames.Select(n => Marshal.StringToHGlobalAnsi(n)).ToArray();
             outputNames = new[] { Marshal.StringToHGlobalAnsi("logits") };
             try
             {
-                Tokenizer = new LayaTokenizer(Path.Combine(directory, TokenizerFile));
+                Tokenizer = new LayaTokenizer(LocalFiles.Require(Path.Combine(directory, TokenizerFile)));
                 env = ort.CreateEnv();
                 memoryInfo = ort.CreateCpuMemoryInfo();
-                session = ort.CreateSession(env, Path.Combine(directory, ModelFile), threads, profilePath);
+                session = ort.CreateSession(env, LocalFiles.Require(Path.Combine(directory, ModelFile)), threads);
             }
             catch { Dispose(); throw; }
         }
@@ -103,8 +133,13 @@ namespace EmotionCat
         /// Returns probabilities in emotion order.
         public double[] Classify(LayaSequence sequence)
         {
+            if (sequence == null) throw new ArgumentNullException("sequence");
             lock (gate)
+            // Expiry can erase a queued sequence. During a native run, its separate
+            // run-options deadline cancels first; memory is erased on return.
+            lock (sequence.Gate)
             {
+                if (sequence.Erased || sequence.ExpiresAt != 0 && Stopwatch.GetTimestamp() >= sequence.ExpiresAt) throw new OperationCanceledException();
                 if (session == IntPtr.Zero) throw new ObjectDisposedException("LayaEngine");
                 if (sequence == null || sequence.InputIds == null || sequence.MarkerPositions == null
                     || sequence.InputIds.Length < 1 || sequence.InputIds.Length > MaxLen
@@ -120,6 +155,7 @@ namespace EmotionCat
                 Array.Copy(sequence.MarkerPositions, markers, k);
                 for (int i = 0; i < k; i++) mask[i] = 1;
                 for (int i = 0; i < sequence.InputIds.Length; i++) attentionMask[i] = 1;
+                sequence.Dispose(); // Only the native call's explicitly owned tensor buffers remain.
                 var pins = new[] { GCHandle.Alloc(tokens, GCHandleType.Pinned), GCHandle.Alloc(markers, GCHandleType.Pinned), GCHandle.Alloc(mask, GCHandleType.Pinned), GCHandle.Alloc(attentionMask, GCHandleType.Pinned) };
                 var inputs = new IntPtr[4];
                 IntPtr output = IntPtr.Zero;
@@ -129,7 +165,7 @@ namespace EmotionCat
                     inputs[1] = ort.CreateTensor(memoryInfo, pins[1].AddrOfPinnedObject(), MaxOptions * 8L, new long[] { 1, MaxOptions }, OnnxRuntime.TensorInt64);
                     inputs[2] = ort.CreateTensor(memoryInfo, pins[2].AddrOfPinnedObject(), MaxOptions, new long[] { 1, MaxOptions }, OnnxRuntime.TensorBool);
                     inputs[3] = ort.CreateTensor(memoryInfo, pins[3].AddrOfPinnedObject(), MaxLen * 8L, new long[] { 1, MaxLen }, OnnxRuntime.TensorInt64);
-                    output = ort.Run(session, inputNames, inputs, outputNames);
+                    output = ort.Run(session, inputNames, inputs, outputNames, sequence.ExpiresAt);
                     var logits = new float[k];
                     Marshal.Copy(ort.TensorData(output), logits, 0, k);
                     if (logits.Any(v => Single.IsNaN(v) || Single.IsInfinity(v))) throw new InvalidOperationException("GPU 감정 모델이 유효하지 않은 점수를 반환했습니다.");
@@ -143,6 +179,11 @@ namespace EmotionCat
                     ort.ReleaseValue(output);
                     foreach (var value in inputs) ort.ReleaseValue(value);
                     foreach (var pin in pins) pin.Free();
+                    Array.Clear(tokens, 0, tokens.Length);
+                    Array.Clear(markers, 0, markers.Length);
+                    Array.Clear(mask, 0, mask.Length);
+                    Array.Clear(attentionMask, 0, attentionMask.Length);
+                    sequence.Dispose();
                 }
             }
         }

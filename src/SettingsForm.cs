@@ -89,11 +89,11 @@ namespace EmotionCat
             connection.Controls.Add(inputMode);
             modelStatus = LabelAt(connection, "모델 연결 대기", 20, 131, 370, 43, 9, false); modelStatus.ForeColor = Muted;
             ButtonAt(connection, "감정 모델 다시 시작", 20, 181, 220, 37, async delegate { settings.Model = "multilingual"; app.SaveSettings(); await app.RestartModel(); }, true);
-            enabled = new CheckBox { Text = "다른 앱에서 친 글로 감정 바꾸기", Location = new Point(20, 246), Size = new Size(371, 27), Checked = settings.InputEnabled };
+            enabled = new CheckBox { Text = "다른 앱의 타자 내용 수집·로컬 분석 허용", Location = new Point(20, 246), Size = new Size(371, 27), Checked = settings.InputEnabled };
             enabled.CheckedChanged += delegate { if (!loading) { settings.InputEnabled = enabled.Checked; app.ApplySettings(); } }; connection.Controls.Add(enabled);
             inputStatus = LabelAt(connection, "입력 대기", 20, 278, 371, 37, 8.5f, false); inputStatus.ForeColor = Muted;
             ButtonAt(connection, "입력 확인 · 분류 지시문", 20, 321, 370, 35, delegate { new DiagnosticsForm(app).Show(this); }, false);
-            LabelAt(connection, "GPU 필수 · 사용할 수 없으면 감정 분석 꺼짐\n암호 필드·제외 앱 제외 · 입력 내용 저장 안 함", 20, 374, 372, 44, 8.5f, false).ForeColor = Muted;
+            LabelAt(connection, "GPU 필수 · 사용할 수 없으면 감정 분석 꺼짐\n입력은 최대 1초 유지 · 원문 저장·표시 안 함", 20, 374, 372, 44, 8.5f, false).ForeColor = Muted;
             Panel tester = Card(sections[1], 424, 0, 420, 426);
             LabelAt(tester, "분류 테스트", 20, 17, 380, 28, 13, true);
             testInput = TextAt(tester, 20, 93, 380, 92, true); testInput.MaxLength = 1000;
@@ -116,18 +116,12 @@ namespace EmotionCat
             ButtonAt(appearance, "화면 오른쪽 아래로 이동", 20, 316, 370, 38, delegate { settings.X = -1; settings.Y = -1; app.ApplySettings(); }, false);
             Panel behavior = Card(sections[2], 424, 0, 420, 426);
             LabelAt(behavior, "입력", 20, 17, 380, 28, 13, true);
-            LabelAt(behavior, "문자 입력 후 분석 대기", 20, 73, 220, 28, 10, false);
-            var debounce = new NumericUpDown { Minimum = 150, Maximum = 5000, Increment = 50, Value = Math.Max(150, Math.Min(5000, settings.DebounceMilliseconds)), Location = new Point(247, 73), Width = 100 }; behavior.Controls.Add(debounce);
-            LabelAt(behavior, "ms", 355, 74, 44, 25, 9, false);
-            debounce.ValueChanged += delegate { settings.DebounceMilliseconds = (int)debounce.Value; app.ApplySettings(); };
+            LabelAt(behavior, "입력 보관 시간: 최대 1초", 20, 73, 380, 28, 10, false);
             LabelAt(behavior, "표정 유지 시간", 20, 119, 220, 28, 10, false);
             var hold = new NumericUpDown { Minimum = 1, Maximum = 60, Value = Math.Max(1, Math.Min(60, settings.HoldSeconds)), Location = new Point(247, 119), Width = 100 }; behavior.Controls.Add(hold);
             LabelAt(behavior, "초", 355, 120, 44, 25, 9, false);
             hold.ValueChanged += delegate { settings.HoldSeconds = (int)hold.Value; app.ApplySettings(); };
-            LabelAt(behavior, "입력을 읽지 않을 앱 (프로세스 이름)", 20, 180, 380, 25, 9, true);
-            var excluded = TextAt(behavior, 20, 216, 380, 84, true); excluded.Text = String.Join(", ", settings.ExcludedProcesses);
-            ButtonAt(behavior, "제외 목록 저장", 20, 315, 380, 37, delegate { settings.ExcludedProcesses = excluded.Text.Split(new[] { ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToArray(); app.ApplySettings(); }, false);
-            LabelAt(behavior, "예: 1Password, KeePass, WindowsTerminal", 20, 372, 385, 25, 8.5f, false).ForeColor = Muted;
+            LabelAt(behavior, "입력 내용은 기기 안에서만 분석합니다.\n1초가 지나면 대기 중인 입력도 폐기합니다.\n새 입력이 들어와도 이전 입력의 보관 시간은\n늘어나지 않습니다.", 20, 180, 380, 120, 9, false).ForeColor = Muted;
 
             ButtonAt(this, "닫기", 754, 603, 118, 33, delegate { Close(); }, true);
             FormClosing += delegate { testInput.Clear(); };
@@ -233,7 +227,9 @@ namespace EmotionCat
             testing = true; testButton.Enabled = false; testResult.Text = "Laya가 표정을 고르고 있어요…";
             try
             {
-                var result = await app.Analyze(testInput.Text);
+                string text = testInput.Text; testInput.Clear(); testInput.ClearUndo();
+                var classification = app.Analyze(text); text = null;
+                var result = await classification;
                 var emotion = settings.Emotions.Find(x => x.Id == result.Emotion);
                 testResult.Text = "→  " + (emotion == null ? result.Emotion : emotion.Name) + "\n모델 점수 " + result.Confidence.ToString("P0") + "  ·  " + result.ElapsedMs.ToString("0") + " ms";
                 if (result.Source == "profanity-rule") testResult.Text = "→  화남\n욕설 우선 규칙";

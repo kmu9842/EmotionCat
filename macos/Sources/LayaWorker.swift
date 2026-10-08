@@ -1,7 +1,7 @@
 import Foundation
 
 /// Runs the bundled Laya model in-process on a private serial queue.
-/// Typed text only lives in memory for the duration of one inference.
+/// Queued plaintext expires at its original one-second capture deadline.
 final class LayaWorker {
     var onStatus: ((String) -> Void)?
     var isReady: Bool {
@@ -16,6 +16,8 @@ final class LayaWorker {
     /// Latest wanted generation, readable from `queue` to skip stale loads.
     private let wanted = GenerationFlag()
     private var classificationCompletion: ((Result<String, Error>) -> Void)?
+    private var activeText: TransientText?
+    private let inferenceGeneration = GenerationFlag()
     private var generation = 0
     private var ready = false
     private var lastStatus = ""
@@ -45,20 +47,29 @@ final class LayaWorker {
         }
     }
 
-    func classify(text: String, emotions: [EmotionDefinition], instructions: String, source: String = "typing", completion: @escaping (Result<String, Error>) -> Void) {
+    func cancelClassification() {
+        onMain { [weak self] in
+            guard let self = self else { return }
+            self.activeText?.erase(); self.activeText = nil
+            self.inferenceGeneration.value += 1
+        }
+    }
+
+    func classify(text: TransientText, emotions: [EmotionDefinition], instructions: String, completion: @escaping (Result<String, Error>) -> Void) {
         onMain { [weak self] in
             guard let self = self, self.ready else {
+                text.erase()
                 completion(.failure(WorkerError.notReady))
                 return
             }
             guard self.classificationCompletion == nil else {
+                text.erase()
                 completion(.failure(WorkerError.busy))
                 return
             }
-            let recentText = String(text.suffix(1000))
             let allowedIDs = Set(emotions.map { $0.id })
-            guard !recentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  (2...16).contains(emotions.count), allowedIDs.count == emotions.count else {
+            guard (2...16).contains(emotions.count), allowedIDs.count == emotions.count else {
+                text.erase()
                 completion(.failure(WorkerError.invalidInput))
                 return
             }
@@ -66,16 +77,22 @@ final class LayaWorker {
             if prompt.isEmpty { prompt = AppSettings().classificationPrompt }
             let labels = emotions.map { LayaLabel(id: $0.id, name: $0.name, description: $0.description) }
             let currentGeneration = self.generation
+            let expiresAt = text.expiresAt
             let holder = self.holder
+            let flag = self.inferenceGeneration, inferenceVersion = self.inferenceGeneration.value
+            self.activeText = text
             self.classificationCompletion = completion
             self.queue.async { [weak self] in
                 let started = DispatchTime.now().uptimeNanoseconds
                 let outcome: Result<[Float], Error>
-                if let engine = holder.engine {
+                if let engine = holder.engine, flag.value == inferenceVersion {
                     outcome = Result {
-                        try engine.probabilities(for: engine.buildSequence(text: recentText, labels: labels, instructions: prompt))
+                        let sequence = try Self.prepare(engine: engine, text: text, labels: labels, prompt: prompt)
+                        defer { sequence.erase() }
+                        return try engine.probabilities(for: sequence, shouldCancel: { flag.value != inferenceVersion })
                     }
                 } else {
+                    text.erase()
                     outcome = .failure(WorkerError.notReady)
                 }
                 let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
@@ -83,6 +100,9 @@ final class LayaWorker {
                     guard let self = self, self.generation == currentGeneration else { return }
                     let callback = self.classificationCompletion
                     self.classificationCompletion = nil
+                    self.activeText = nil
+                    guard flag.value == inferenceVersion, DispatchTime.now().uptimeNanoseconds < expiresAt
+                    else { callback?(.failure(WorkerError.cancelled)); return }
                     guard case .success(let probabilities) = outcome, probabilities.count == labels.count,
                           let best = probabilities.indices.max(by: { probabilities[$0] < probabilities[$1] }) else {
                         callback?(.failure(WorkerError.inferenceFailed))
@@ -90,11 +110,19 @@ final class LayaWorker {
                     }
                     let emotion = labels[best].id
                     let chosen = probabilities[best] < 0.25 && allowedIDs.contains("neutral") ? "neutral" : emotion
-                    self.report("입력 \(recentText.count)자 → \(chosen) · \(Int(elapsed.rounded())) ms · CPU")
+                    self.report("\(chosen) · \(Int(elapsed.rounded())) ms · CPU · 원문 폐기")
                     callback?(.success(chosen))
                 }
             }
         }
+    }
+
+    private static func prepare(engine: LayaEngine, text: TransientText, labels: [LayaLabel], prompt: String) throws -> LayaSequence {
+        let value = text.take()
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw WorkerError.cancelled }
+        let sequence = engine.buildSequence(text: value, labels: labels, instructions: prompt)
+        sequence.expiresAt = text.expiresAt
+        return sequence
     }
 
     private func startOnMain(model: String) {
@@ -129,6 +157,7 @@ final class LayaWorker {
     }
 
     private func stopRuntime() {
+        cancelClassification()
         generation += 1
         wanted.value = generation
         ready = false
@@ -171,7 +200,7 @@ private enum WorkerError: LocalizedError {
         case .busy: return "이전 문장의 감정을 분석 중입니다."
         case .cancelled: return "감정 분석이 취소되었습니다."
         case .invalidInput: return "입력 문장과 감정 레이블을 확인해 주세요."
-        case .inferenceFailed: return "감정 분석에 실패했습니다. 잠시 후 다시 입력해 주세요."
+        case .inferenceFailed: return "분석이 만료되었거나 실패했습니다. 입력은 폐기했습니다."
         }
     }
 }

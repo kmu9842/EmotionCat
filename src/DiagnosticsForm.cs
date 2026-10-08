@@ -13,8 +13,7 @@ namespace EmotionCat
             ClientSize = new Size(620, 585); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent; BackColor = Color.FromArgb(249, 246, 243);
             var status = new Label { Bounds = new Rectangle(20, 15, 580, 66) }; Controls.Add(status);
-            Controls.Add(new Label { Text = "최근 감지 / 전달 문장 (메모리에서만 표시)", Bounds = new Rectangle(20, 88, 580, 25) });
-            var input = new TextBox { Bounds = new Rectangle(20, 118, 580, 79), Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical }; Controls.Add(input);
+            Controls.Add(new Label { Text = "입력 원문은 표시하거나 보관하지 않습니다.\n수집 시작부터 1초가 지나면 대기 중인 입력도 폐기합니다.", Bounds = new Rectangle(20, 100, 580, 79) });
             Controls.Add(new Label { Text = "Laya에 전달할 분류 지시문", Bounds = new Rectangle(20, 218, 580, 25) });
             var prompt = new TextBox { Bounds = new Rectangle(20, 250, 580, 153), Multiline = true, ScrollBars = ScrollBars.Vertical, Text = app.Settings.ClassificationPrompt, MaxLength = 1000 }; Controls.Add(prompt);
             Controls.Add(new Label { Text = "점수가 이 값보다 낮으면 평온으로 표시", Bounds = new Rectangle(20, 424, 395, 27) });
@@ -25,10 +24,9 @@ namespace EmotionCat
             refresh.Tick += delegate
             {
                 status.Text = app.Client.DeviceDescription + "  ·  " + app.PipelineSummary + "\n" + app.InputStatus + "\n" + app.DecisionSummary;
-                if (input.Text != app.LastInputText) input.Text = app.LastInputText;
             };
             refresh.Start();
-            FormClosed += delegate { refresh.Dispose(); input.Clear(); };
+            FormClosed += delegate { refresh.Dispose(); };
         }
     }
 }

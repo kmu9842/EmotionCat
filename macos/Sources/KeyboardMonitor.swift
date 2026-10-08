@@ -3,27 +3,26 @@ import ApplicationServices
 import Carbon
 import Foundation
 
-// Passive global characters; Accessibility is consulted only for password metadata.
+// Passive global characters, kept for at most one second. No editor inspection.
 final class KeyboardMonitor {
     private let onStroke: () -> Void
-    private let onText: (String) -> Void
+    private let onText: (TransientText) -> Void
     private let onStatus: (String) -> Void
+    private let onInvalidated: () -> Void
     private var eventTap: CFMachPort?
     private var eventSource: CFRunLoopSource?
     private var activationObserver: NSObjectProtocol?
+    private var privacyObservers: [NSObjectProtocol] = []
     private var permissionTimer: Timer?
     private var pendingRead: DispatchWorkItem?
-    private let systemElement = AXUIElementCreateSystemWide()
     private let buffer = TypedTextBuffer()
-    private var pendingText = "", emittedText = "", lastStatus = ""
-    private var fresh = true, blocked = false, isStarted = false
-    private var lastCharacter = Date.distantPast, checkedAt = Date.distantPast
+    private var lastStatus = ""
+    private var isStarted = false
+    private var captureDeadline: UInt64 = 0
     private var focusedPID: pid_t = 0
     private static let movementKeys: Set<Int64> = [48, 53, 64, 79, 80, 90, 96, 97, 98,
         99, 100, 101, 103, 105, 106, 107, 109, 111, 113, 114, 115, 116, 117, 118,
         119, 120, 121, 122, 123, 124, 125, 126]
-    private static let excludedApplications = ["1password", "onepassword", "bitwarden",
-        "lastpass", "dashlane", "keepass", "enpass", "keeper", "keychain", "passwords"]
     private static let twoSetKeys: [Int64: String] = [0: "a", 1: "s", 2: "d", 3: "f", 4: "h", 5: "g",
         6: "z", 7: "x", 8: "c", 9: "v", 11: "b", 12: "q", 13: "w", 14: "e", 15: "r",
         16: "y", 17: "t", 31: "o", 32: "u", 34: "i", 35: "p", 37: "l", 38: "j",
@@ -32,10 +31,10 @@ final class KeyboardMonitor {
     var enabled = true { didSet { if !enabled { clearCapture() }; reportStatus() } }
     var captureText = false { didSet { if captureText != oldValue { clearCapture() }; reportStatus() } }
 
-    init(onStroke: @escaping () -> Void, onText: @escaping (String) -> Void,
-         onStatus: @escaping (String) -> Void) {
+    init(onStroke: @escaping () -> Void, onText: @escaping (TransientText) -> Void,
+         onStatus: @escaping (String) -> Void, onInvalidated: @escaping () -> Void) {
         self.onStroke = onStroke; self.onText = onText; self.onStatus = onStatus
-        AXUIElementSetMessagingTimeout(systemElement, 0.025)
+        self.onInvalidated = onInvalidated
     }
     func start() {
         isStarted = true
@@ -44,8 +43,13 @@ final class KeyboardMonitor {
                 forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
             ) { [weak self] _ in
                 guard let self = self else { return }
-                self.fresh = true; self.checkedAt = .distantPast
+                self.clearCapture()
                 if self.isStarted && self.eventTap == nil { self.installTap() }
+            }
+        }
+        if privacyObservers.isEmpty {
+            for name in [NSWorkspace.willSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
+                privacyObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.clearCapture() })
             }
         }
         if eventTap == nil { installTap() }
@@ -59,12 +63,12 @@ final class KeyboardMonitor {
         if let source = eventSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
         eventSource = nil; eventTap = nil
         if let observer = activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(observer); activationObserver = nil }
+        for observer in privacyObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        privacyObservers.removeAll()
         reportStatus()
     }
     func requestPermissions() {
         _ = CGRequestListenEventAccess()
-        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
         if isStarted && eventTap == nil { installTap() }
         waitForPermission()
         reportStatus()
@@ -86,6 +90,7 @@ final class KeyboardMonitor {
         if let tap = eventTap { CFMachPortInvalidate(tap) }
         if let source = eventSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
         if let observer = activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        for observer in privacyObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
     }
     private func installTap() {
         guard eventTap == nil, CGPreflightListenEventAccess() else { reportStatus(); return }
@@ -100,7 +105,7 @@ final class KeyboardMonitor {
                     monitor.clearCapture()
                     if let tap = monitor.eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
                 } else if type == .keyDown { monitor.handleKey(event) }
-                else { monitor.fresh = true; monitor.checkedAt = .distantPast }
+                else { monitor.clearCapture() }
                 return Unmanaged.passUnretained(event)
             }, userInfo: Unmanaged.passUnretained(self).toOpaque())
         guard let installedTap = tap, let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, installedTap, 0)
@@ -114,22 +119,14 @@ final class KeyboardMonitor {
         guard enabled, captureText else { return }
         let code = event.getIntegerValueField(.keyboardEventKeycode)
         if !event.flags.intersection([.maskCommand, .maskControl]).isEmpty || Self.movementKeys.contains(code) {
-            fresh = true; return
+            clearCapture(); return
         }
-        guard let app = NSWorkspace.shared.frontmostApplication else { return }
-        let now = Date()
-        if focusedPID != app.processIdentifier { fresh = true; checkedAt = .distantPast; focusedPID = app.processIdentifier }
-        if now.timeIntervalSince(checkedAt) > 0.5 {
-            blocked = isExcluded(app) || isPasswordField(); checkedAt = now
-        }
-        if blocked { clearCapture(); publishStatus("암호 필드·제외 앱"); return }
-        if code == 36 || code == 76 { buffer.commit(); fresh = true; return }
+        guard let app = NSWorkspace.shared.frontmostApplication else { clearCapture(); return }
+        if focusedPID != app.processIdentifier { clearCapture() }
+        focusedPID = app.processIdentifier
+        if code == 36 || code == 76 { emitRecentText(); return }
         if code == 51 {
             buffer.backspace()
-            if pendingRead != nil {
-                pendingText = buffer.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if pendingText.isEmpty { pendingRead?.cancel(); pendingRead = nil }
-            }
             return
         }
         let korean = isKoreanTwoSet()
@@ -137,26 +134,31 @@ final class KeyboardMonitor {
         let physical = korean && event.flags.intersection([.maskAlternate]).isEmpty ? Self.twoSetKeys[code] : nil
         if let key = physical { characters = event.flags.contains(.maskShift) ? key.uppercased() : key }
         guard !characters.isEmpty else { return }
-        if fresh || now.timeIntervalSince(lastCharacter) > 1.8 { buffer.clear(); emittedText = ""; fresh = false }
-        buffer.append(characters, korean: physical != nil)
-        lastCharacter = now
-        pendingText = buffer.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !pendingText.isEmpty, pendingText != emittedText else { return }
-        publishStatus("전역 문자 입력 · \(pendingText.count)자 기록")
+        if captureDeadline != 0 && DispatchTime.now().uptimeNanoseconds >= captureDeadline { clearCapture(invalidate: false) }
         if pendingRead == nil {
+            captureDeadline = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
+            buffer.expire(at: captureDeadline)
             let work = DispatchWorkItem { [weak self] in self?.emitRecentText() }
             pendingRead = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
         }
+        buffer.append(characters, korean: physical != nil)
+        characters = ""
+        publishStatus("전역 문자 입력 · 분석 전달 후 입력 버퍼 폐기")
     }
     private func emitRecentText() {
-        pendingRead = nil
-        guard enabled, captureText, !pendingText.isEmpty, pendingText != emittedText else { return }
-        emittedText = pendingText; onText(pendingText)
+        defer { clearCapture(invalidate: false) }
+        guard enabled, captureText, captureDeadline != 0,
+              DispatchTime.now().uptimeNanoseconds < captureDeadline,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == focusedPID else { return }
+        let text = buffer.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        buffer.clear()
+        if !text.isEmpty { onText(TransientText(text, expiresAt: captureDeadline)) }
     }
-    private func clearCapture() {
+    private func clearCapture(invalidate: Bool = true) {
         pendingRead?.cancel(); pendingRead = nil; buffer.clear()
-        pendingText = ""; emittedText = ""; fresh = true; lastCharacter = .distantPast
+        captureDeadline = 0
+        if invalidate { onInvalidated() }
     }
     private func isKoreanTwoSet() -> Bool {
         guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
@@ -164,26 +166,9 @@ final class KeyboardMonitor {
         let identifier = Unmanaged<CFString>.fromOpaque(property).takeUnretainedValue() as String
         return identifier.lowercased().contains("korean.2set")
     }
-    private func isExcluded(_ app: NSRunningApplication) -> Bool {
-        let identity = ((app.bundleIdentifier ?? "") + " " + (app.localizedName ?? "")).lowercased()
-        return Self.excludedApplications.contains { identity.contains($0) }
-    }
-    private func isPasswordField() -> Bool {
-        guard AXIsProcessTrusted(), let value = attribute(systemElement, kAXFocusedUIElementAttribute),
-              CFGetTypeID(value) == AXUIElementGetTypeID() else { return false }
-        let element = value as! AXUIElement
-        AXUIElementSetMessagingTimeout(element, 0.025)
-        return (attribute(element, kAXSubroleAttribute) as? String) == "AXSecureTextField"
-            || (attribute(element, "AXProtectedContent") as? Bool) == true
-            || (attribute(element, "AXSecure") as? Bool) == true
-    }
-    private func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
-        return value
-    }
     private func unicodeString(_ event: CGEvent) -> String {
         var units = [UniChar](repeating: 0, count: 64), count = 0
+        defer { units.withUnsafeMutableBytes { bytes in if let base = bytes.baseAddress { memset_s(base, bytes.count, 0, bytes.count) } } }
         units.withUnsafeMutableBufferPointer { buffer in
             event.keyboardGetUnicodeString(maxStringLength: buffer.count, actualStringLength: &count, unicodeString: buffer.baseAddress)
         }

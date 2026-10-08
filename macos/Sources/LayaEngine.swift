@@ -6,9 +6,48 @@ struct LayaLabel {
     var description: String
 }
 
-struct LayaSequence {
+final class LayaSequence {
     var inputIDs: [Int64]
     var markerPositions: [Int64]
+    var expiresAt = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
+    init(inputIDs: [Int64], markerPositions: [Int64]) { self.inputIDs = inputIDs; self.markerPositions = markerPositions }
+    deinit { erase() }
+    func erase() {
+        inputIDs.withUnsafeMutableBytes { bytes in if let base = bytes.baseAddress { memset_s(base, bytes.count, 0, bytes.count) } }
+        markerPositions.withUnsafeMutableBytes { bytes in if let base = bytes.baseAddress { memset_s(base, bytes.count, 0, bytes.count) } }
+        inputIDs.removeAll(); markerPositions.removeAll()
+    }
+}
+
+/// Run cancellation is cooperative; buffers are erased after the native call
+/// returns, never while ONNX Runtime is still accessing them.
+private final class LayaRun {
+    private let api: UnsafePointer<OrtApi>
+    let options: OpaquePointer
+    private let deadline: UInt64
+    private let shouldCancel: () -> Bool
+    private let lock = NSLock()
+    private var live = true
+    private var timer: DispatchSourceTimer?
+    init(api: UnsafePointer<OrtApi>, deadline: UInt64, shouldCancel: @escaping () -> Bool) throws {
+        self.api = api; self.deadline = deadline; self.shouldCancel = shouldCancel
+        var value: OpaquePointer?
+        if let status = api.pointee.CreateRunOptions!(&value) {
+            api.pointee.ReleaseStatus!(status); throw LayaEngineError.invalidInput
+        }
+        guard let value = value else { throw LayaEngineError.invalidInput }
+        options = value
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+        timer.schedule(deadline: DispatchTime(uptimeNanoseconds: deadline))
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            if self.live, let status = self.api.pointee.RunOptionsSetTerminate!(self.options) { self.api.pointee.ReleaseStatus!(status) }
+        }
+        self.timer = timer; timer.resume()
+    }
+    var cancelled: Bool { DispatchTime.now().uptimeNanoseconds >= deadline || shouldCancel() }
+    deinit { timer?.cancel(); lock.lock(); live = false; api.pointee.ReleaseRunOptions!(options); lock.unlock() }
 }
 
 enum LayaEngineError: LocalizedError {
@@ -44,8 +83,8 @@ final class LayaEngine {
     private var memoryInfo: OpaquePointer?
 
     init(modelDirectory: URL) throws {
-        let modelURL = modelDirectory.appendingPathComponent(Self.modelFileName)
-        let tokenizerURL = modelDirectory.appendingPathComponent(Self.tokenizerFileName)
+        let modelURL = try LocalFiles.require(modelDirectory.appendingPathComponent(Self.modelFileName))
+        let tokenizerURL = try LocalFiles.require(modelDirectory.appendingPathComponent(Self.tokenizerFileName))
         for url in [modelURL, tokenizerURL] where !FileManager.default.fileExists(atPath: url.path) {
             throw LayaEngineError.missingFile(url.lastPathComponent)
         }
@@ -56,6 +95,7 @@ final class LayaEngine {
 
         do {
             try check(api.pointee.CreateEnv!(ORT_LOGGING_LEVEL_ERROR, "EmotionCat", &env))
+            try check(api.pointee.DisableTelemetryEvents!(env))
             var options: OpaquePointer?
             try check(api.pointee.CreateSessionOptions!(&options))
             defer { if let options = options { api.pointee.ReleaseSessionOptions!(options) } }
@@ -121,7 +161,9 @@ final class LayaEngine {
     }
 
     /// Softmax over the marker logits; one probability per label, in label order.
-    func probabilities(for sequence: LayaSequence) throws -> [Float] {
+    func probabilities(for sequence: LayaSequence, shouldCancel: @escaping () -> Bool = { false }) throws -> [Float] {
+        let run = try LayaRun(api: api, deadline: sequence.expiresAt, shouldCancel: shouldCancel)
+        guard !run.cancelled else { throw LayaEngineError.invalidInput }
         let tokens = sequence.inputIDs, markers = sequence.markerPositions
         guard !tokens.isEmpty, !markers.isEmpty, let session = session, let memoryInfo = memoryInfo else {
             throw LayaEngineError.invalidInput
@@ -129,14 +171,17 @@ final class LayaEngine {
         let maskValues = [UInt8](repeating: 1, count: markers.count)  // ONNX bool is one byte
         var values: [OpaquePointer?] = [nil, nil, nil]
         var output: OpaquePointer?
-        defer {
-            for value in values { if let value = value { api.pointee.ReleaseValue!(value) } }
-            if let output = output { api.pointee.ReleaseValue!(output) }
-        }
         let tokenBuffer = UnsafeMutablePointer<Int64>.allocate(capacity: tokens.count)
         let markerBuffer = UnsafeMutablePointer<Int64>.allocate(capacity: markers.count)
         let maskBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: markers.count)
-        defer { tokenBuffer.deallocate(); markerBuffer.deallocate(); maskBuffer.deallocate() }
+        defer {
+            for value in values { if let value = value { api.pointee.ReleaseValue!(value) } }
+            if let output = output { api.pointee.ReleaseValue!(output) }
+            memset_s(tokenBuffer, tokens.count * 8, 0, tokens.count * 8)
+            memset_s(markerBuffer, markers.count * 8, 0, markers.count * 8)
+            memset_s(maskBuffer, markers.count, 0, markers.count)
+            tokenBuffer.deallocate(); markerBuffer.deallocate(); maskBuffer.deallocate()
+        }
         tokenBuffer.initialize(from: tokens, count: tokens.count)
         markerBuffer.initialize(from: markers, count: markers.count)
         maskBuffer.initialize(from: maskValues, count: markers.count)
@@ -157,11 +202,12 @@ final class LayaEngine {
         try inputNames.withUnsafeBufferPointer { names in
             try outputNames.withUnsafeBufferPointer { outNames in
                 try values.withUnsafeBufferPointer { inputValues in
-                    try check(api.pointee.Run!(session, nil, names.baseAddress, inputValues.baseAddress, 3,
+                    try check(api.pointee.Run!(session, run.options, names.baseAddress, inputValues.baseAddress, 3,
                                               outNames.baseAddress, 1, &output))
                 }
             }
         }
+        guard !run.cancelled else { throw LayaEngineError.invalidInput }
         guard let result = output else { throw LayaEngineError.unexpectedOutput }
 
         var info: OpaquePointer?

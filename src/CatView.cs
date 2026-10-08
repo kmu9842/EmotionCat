@@ -15,7 +15,10 @@ namespace EmotionCat
         public Bitmap Get(string path)
         {
             if (String.IsNullOrWhiteSpace(path)) return null;
-            path = AppSettings.ResolveAssetPath(path);
+            try { path = AppSettings.ResolveAssetPath(path); }
+            catch (ArgumentException) { return null; }
+            catch (IOException) { return null; }
+            catch (UnauthorizedAccessException) { return null; }
             Bitmap image;
             if (images.TryGetValue(path, out image)) return image;
             if (!File.Exists(path)) return null;

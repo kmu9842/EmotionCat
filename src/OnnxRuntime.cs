@@ -1,5 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
+using System.Threading;
 
 namespace EmotionCat
 {
@@ -8,12 +10,13 @@ namespace EmotionCat
     internal sealed class OnnxRuntime
     {
         private const uint ApiVersion = 23;
-        private const int IdxGetErrorMessage = 2, IdxCreateEnv = 3, IdxCreateSession = 7, IdxRun = 9,
-            IdxCreateSessionOptions = 10, IdxSetExecutionMode = 13, IdxEnableProfiling = 14, IdxDisableMemPattern = 17,
+        private const int IdxGetErrorMessage = 2, IdxCreateEnv = 3, IdxDisableTelemetry = 6, IdxCreateSession = 7, IdxRun = 9,
+            IdxCreateSessionOptions = 10, IdxSetExecutionMode = 13, IdxDisableMemPattern = 17,
             IdxSetGraphOptimization = 23, IdxSetIntraOpThreads = 24,
-            IdxSetInterOpThreads = 25, IdxCreateTensorWithData = 49, IdxGetTensorMutableData = 51,
+            IdxSetInterOpThreads = 25, IdxCreateRunOptions = 39, IdxRunOptionsSetTerminate = 46,
+            IdxCreateTensorWithData = 49, IdxGetTensorMutableData = 51,
             IdxCreateCpuMemoryInfo = 69, IdxReleaseEnv = 92, IdxReleaseStatus = 93, IdxReleaseMemoryInfo = 94,
-            IdxReleaseSession = 95, IdxReleaseValue = 96, IdxReleaseSessionOptions = 100,
+            IdxReleaseSession = 95, IdxReleaseValue = 96, IdxReleaseRunOptions = 97, IdxReleaseSessionOptions = 100,
             IdxAddSessionConfigEntry = 130, IdxGetExecutionProviderApi = 195;
         internal const int TensorFloat = 1, TensorInt64 = 7, TensorBool = 9;
 
@@ -28,7 +31,6 @@ namespace EmotionCat
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr CreateOptionsFn(out IntPtr options);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr SetIntFn(IntPtr options, int value);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr OptionsFn(IntPtr options);
-        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr ProfileFn(IntPtr options, [MarshalAs(UnmanagedType.LPWStr)] string path);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr ConfigFn(IntPtr options, [MarshalAs(UnmanagedType.LPStr)] string key, [MarshalAs(UnmanagedType.LPStr)] string value);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr ProviderApiFn([MarshalAs(UnmanagedType.LPStr)] string name, uint version, out IntPtr api);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate IntPtr AppendDmlFn(IntPtr options, ref DmlDeviceOptions device);
@@ -42,17 +44,17 @@ namespace EmotionCat
         private readonly CreateEnvFn createEnv;
         private readonly CreateSessionFn createSession;
         private readonly RunFn run;
-        private readonly CreateOptionsFn createOptions;
+        private readonly CreateOptionsFn createOptions, createRunOptions;
         private readonly SetIntFn setGraphOptimization, setIntraThreads, setInterThreads;
         private readonly SetIntFn setExecutionMode;
-        private readonly OptionsFn disableMemPattern;
+        private readonly OptionsFn disableMemPattern, disableTelemetry, terminateRun;
         private readonly ConfigFn addConfig;
-        private readonly ProfileFn enableProfiling;
         private readonly ProviderApiFn getProviderApi;
         private readonly CreateTensorFn createTensor;
         private readonly GetDataFn getTensorData;
         private readonly CreateCpuInfoFn createCpuInfo;
         internal readonly Action<IntPtr> ReleaseEnv, ReleaseStatus, ReleaseMemoryInfo, ReleaseSession, ReleaseValue, ReleaseSessionOptions;
+        private readonly Action<IntPtr> releaseRunOptions;
 
         private static OnnxRuntime instance;
         private static readonly object InstanceGate = new object();
@@ -71,16 +73,19 @@ namespace EmotionCat
             Func<int, IntPtr> slot = index => Marshal.ReadIntPtr(api, index * IntPtr.Size);
             getErrorMessage = Fn<GetErrorMessageFn>(slot(IdxGetErrorMessage));
             createEnv = Fn<CreateEnvFn>(slot(IdxCreateEnv));
+            disableTelemetry = Fn<OptionsFn>(slot(IdxDisableTelemetry));
             createSession = Fn<CreateSessionFn>(slot(IdxCreateSession));
             run = Fn<RunFn>(slot(IdxRun));
             createOptions = Fn<CreateOptionsFn>(slot(IdxCreateSessionOptions));
+            createRunOptions = Fn<CreateOptionsFn>(slot(IdxCreateRunOptions));
+            terminateRun = Fn<OptionsFn>(slot(IdxRunOptionsSetTerminate));
+            releaseRunOptions = Release(slot(IdxReleaseRunOptions));
             setGraphOptimization = Fn<SetIntFn>(slot(IdxSetGraphOptimization));
             setIntraThreads = Fn<SetIntFn>(slot(IdxSetIntraOpThreads));
             setInterThreads = Fn<SetIntFn>(slot(IdxSetInterOpThreads));
             setExecutionMode = Fn<SetIntFn>(slot(IdxSetExecutionMode));
             disableMemPattern = Fn<OptionsFn>(slot(IdxDisableMemPattern));
             addConfig = Fn<ConfigFn>(slot(IdxAddSessionConfigEntry));
-            enableProfiling = Fn<ProfileFn>(slot(IdxEnableProfiling));
             getProviderApi = Fn<ProviderApiFn>(slot(IdxGetExecutionProviderApi));
             createTensor = Fn<CreateTensorFn>(slot(IdxCreateTensorWithData));
             getTensorData = Fn<GetDataFn>(slot(IdxGetTensorMutableData));
@@ -117,10 +122,12 @@ namespace EmotionCat
         {
             IntPtr env;
             Check(createEnv(3 /* ORT_LOGGING_LEVEL_ERROR */, "EmotionCat", out env));
+            try { Check(disableTelemetry(env)); }
+            catch { ReleaseEnv(env); throw; }
             return env;
         }
 
-        internal IntPtr CreateSession(IntPtr env, string modelPath, int threads, string profilePath = null)
+        internal IntPtr CreateSession(IntPtr env, string modelPath, int threads)
         {
             IntPtr options;
             Check(createOptions(out options));
@@ -140,7 +147,6 @@ namespace EmotionCat
                 var appendDml = Fn<AppendDmlFn>(Marshal.ReadIntPtr(dmlApi, 5 * IntPtr.Size));
                 var device = new DmlDeviceOptions { Preference = 1 /* HighPerformance */, Filter = 1 /* GPU only */ };
                 Check(appendDml(options, ref device));
-                if (!String.IsNullOrWhiteSpace(profilePath)) Check(enableProfiling(options, profilePath));
                 IntPtr session;
                 Check(createSession(env, modelPath, options, out session));
                 return session;
@@ -163,12 +169,36 @@ namespace EmotionCat
             return value;
         }
 
-        internal IntPtr Run(IntPtr session, IntPtr[] inputNames, IntPtr[] inputs, IntPtr[] outputNames)
+        internal IntPtr Run(IntPtr session, IntPtr[] inputNames, IntPtr[] inputs, IntPtr[] outputNames, long expiresAt)
         {
+            if (expiresAt != 0 && Stopwatch.GetTimestamp() >= expiresAt) throw new OperationCanceledException();
             var outputs = new IntPtr[outputNames.Length];
-            Check(run(session, IntPtr.Zero, inputNames, inputs, new UIntPtr((ulong)inputs.Length),
-                outputNames, new UIntPtr((ulong)outputNames.Length), outputs));
-            return outputs[0];
+            IntPtr options; Check(createRunOptions(out options));
+            var gate = new object(); bool live = true, cancelled = false;
+            Timer expiry = null;
+            try
+            {
+                if (expiresAt != 0) expiry = new Timer(delegate
+                {
+                    lock (gate) { if (live) { cancelled = true; ReleaseStatus(terminateRun(options)); } }
+                }, null, Math.Max(0, (int)Math.Min(1000, (expiresAt - Stopwatch.GetTimestamp()) * 1000 / Stopwatch.Frequency)), Timeout.Infinite);
+                IntPtr status = run(session, options, inputNames, inputs, new UIntPtr((ulong)inputs.Length),
+                    outputNames, new UIntPtr((ulong)outputNames.Length), outputs);
+                lock (gate)
+                {
+                    live = false;
+                    if (cancelled || expiresAt != 0 && Stopwatch.GetTimestamp() >= expiresAt)
+                    { ReleaseStatus(status); throw new OperationCanceledException(); }
+                }
+                Check(status);
+                return outputs[0];
+            }
+            catch { foreach (var output in outputs) ReleaseValue(output); throw; }
+            finally
+            {
+                if (expiry != null) expiry.Dispose();
+                lock (gate) { live = false; releaseRunOptions(options); }
+            }
         }
 
         internal IntPtr TensorData(IntPtr value)

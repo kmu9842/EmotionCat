@@ -2,35 +2,72 @@
 
 // Bounded keystroke-only buffer, including standard Korean two-set composition.
 final class TypedTextBuffer {
-    private var committed = ""
-    private var jamo: [Character] = []
+    private let committed = WipingTextBuffer(capacity: 240)
+    private let jamo = WipingTextBuffer(capacity: 1024)
+    private let lock = NSRecursiveLock()
+    private var expiry: DispatchSourceTimer?
+    private var expiryVersion = 0
+    private var expiresAt: UInt64 = 0
     private static let leads = Array("ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ")
     private static let vowels = Array("ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ")
     private static let tails = Array(" ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ")
     private static let keys = Array("rRseEfaqQtTdwWczxvgkoiOjpuPhynbml")
     private static let letters = Array("ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎㅏㅐㅑㅒㅓㅔㅕㅖㅗㅛㅜㅠㅡㅣ")
-    var text: String { String((committed + Self.compose(jamo)).suffix(240)) }
-    func clear() { committed = ""; jamo.removeAll(keepingCapacity: true) }
+    deinit { expiry?.cancel() }
+    var text: String {
+        lock.lock(); defer { lock.unlock() }
+        guard !expired() else { return "" }
+        return String((committed.text + Self.compose(jamo.units)).suffix(240))
+    }
+    private func expired() -> Bool {
+        if expiresAt != 0 && DispatchTime.now().uptimeNanoseconds >= expiresAt { clear(); return true }
+        return false
+    }
+    func clear() {
+        lock.lock(); defer { lock.unlock() }
+        expiryVersion += 1; expiry?.cancel(); expiry = nil
+        committed.clear(); jamo.clear()
+    }
+    func expire(at deadline: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        expiry?.cancel(); expiryVersion += 1
+        expiresAt = deadline
+        let version = expiryVersion
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+        timer.schedule(deadline: DispatchTime(uptimeNanoseconds: deadline))
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            if self.expiryVersion == version { self.clear() }
+        }
+        expiry = timer; timer.resume()
+    }
     func commit() {
-        committed = String((committed + Self.compose(jamo)).suffix(240))
-        jamo.removeAll(keepingCapacity: true)
+        lock.lock(); defer { lock.unlock() }
+        guard !expired() else { return }
+        committed.append(Self.compose(jamo.units))
+        jamo.clear()
     }
     func append(_ value: String, korean: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        guard !expired() else { return }
         for character in value {
             let spelling = String(character)
             let key = "REQTWOP".contains(character) ? character : (spelling.lowercased().first ?? character)
             if korean, let index = Self.keys.firstIndex(of: key) {
-                jamo.append(Self.letters[index])
-                if jamo.count > 1024 { jamo.removeFirst(256) }
+                if jamo.count == 1024 { jamo.removeFirst(256) }
+                jamo.append(String(Self.letters[index]))
             } else {
                 commit()
-                committed = String((committed + spelling).suffix(240))
+                committed.append(spelling)
             }
         }
     }
     func backspace() {
-        if !jamo.isEmpty { jamo.removeLast() }
-        else if !committed.isEmpty { committed.removeLast() }
+        lock.lock(); defer { lock.unlock() }
+        guard !expired() else { return }
+        if jamo.count > 0 { jamo.backspace() }
+        else { committed.backspace() }
     }
     private static func compoundVowel(_ a: Int, _ b: Int) -> Int? {
         switch (a, b) {
@@ -61,14 +98,15 @@ final class TypedTextBuffer {
         default: return (0, tails[value])
         }
     }
-    private static func compose(_ source: [Character]) -> String {
+    private static func compose(_ source: UnsafeBufferPointer<UInt16>) -> String {
         var output = "", lead = -1, vowel = -1, tail = 0
         func flush(_ l: Int, _ v: Int, _ t: Int) {
             if l >= 0 && v >= 0 { output.unicodeScalars.append(UnicodeScalar(0xAC00 + (l * 21 + v) * 28 + t)!) }
             else if l >= 0 { output.append(leads[l]) }
             else if v >= 0 { output.append(vowels[v]) }
         }
-        for character in source {
+        for unit in source {
+            let character = Character(UnicodeScalar(unit)!)
             if let nextVowel = vowels.firstIndex(of: character) {
                 if vowel < 0 { vowel = nextVowel }
                 else if tail > 0 {
